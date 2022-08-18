@@ -39,6 +39,7 @@ Shader "Hidden/DeferredLighting"
             sampler2D _GBuffer2;
             sampler2D _DepthBuffer;
             float4 _MainLightPosition;
+            float4x4 _ScreenToWorldMatrix;
 
             float3 Lambert(float3 diffuse)
             {
@@ -94,10 +95,13 @@ Shader "Hidden/DeferredLighting"
                 float smoothness = gBufferData2.a;
                 
                 float depth = tex2D(_DepthBuffer, i.uv).r;
-                depth = Linear01Depth(depth);
+                float4 posCS = float4(i.uv * 2.0 - 1.0, depth, 1.0);
+                float4 posWS = mul(_ScreenToWorldMatrix, posCS);
+                posWS /= posWS.w;
+                float3 view = normalize(_WorldSpaceCameraPos - posWS.xyz);
                 
-                //float3 brdf = BRDF(diffuse, specular, 1.0 - smoothness, normalWS, _MainLightPosition, view);
-                float3 col = diffuse;
+                float3 brdf = BRDF(diffuse, specular, 1.0 - smoothness, normalWS, _MainLightPosition, view);
+                float3 col = brdf;
                 
                 return float4(col, 1.0);
             }

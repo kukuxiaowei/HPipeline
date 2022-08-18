@@ -66,8 +66,12 @@ namespace HPipeline
             {
                 var backBuffer = m_RenderGraph.ImportBackbuffer(cID);
 
-                AddGBufferPass(m_RenderGraph, cullingResults, camera, out var gBuffer);
+                //SetCBuffer
                 cmd.SetGlobalVector("_MainLightPosition", -cullingResults.visibleLights[0].localToWorldMatrix.GetColumn(2));
+                cmd.SetGlobalMatrix("_ScreenToWorldMatrix", (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
+
+                //Pass
+                AddGBufferPass(m_RenderGraph, cullingResults, camera, out var gBuffer);
                 AddDeferredLightingPass(m_RenderGraph, gBuffer, out var colorBuffer);
                 AddFinalBlitPass(m_RenderGraph, colorBuffer, backBuffer);
             }

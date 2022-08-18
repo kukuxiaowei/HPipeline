@@ -2,12 +2,14 @@ Shader "HPipleline/Base"
 {
     Properties
     {
-        _Albedo ("Albedo", 2D) = "white" {}
-        [NoScaleOffset]_Normal ("Normal", 2D) = "bump" {}
-        [NoScaleOffset]_Smooth_Map ("Smooth Map", 2D) = "white" {}
-        _Smoothness ("Smoothness", Range(0, 1)) = 0
-        [NoScaleOffset]_Metallic_Map ("Metallic Map", 2D) = "white" {}
+        _MainTex ("Albedo", 2D) = "white" {}
+        _Color ("Color", Color) = (1, 1, 1, 1)
+        [NoScaleOffset]_BumpMap ("Normal Map", 2D) = "bump" {}
+        [NoScaleOffset]_MetallicGlossMap ("Metallic Smoothness", 2D) = "white" {}
         _Metallic ("Metallic", Range(0, 1)) = 0
+        _Glossiness ("Smoothness", Range(0, 1)) = 0
+        [NoScaleOffset]_EmissionMap ("Emission", 2D) = "black" {}
+        _EmissionColor ("Emission Color", Color) = (0, 0, 0, 1)
     }
     SubShader
     {
@@ -41,13 +43,15 @@ Shader "HPipleline/Base"
                 float4 tbn2 : TEXCOORD3;
             };
 
-            sampler2D _Albedo;
-            float4 _Albedo_ST;
-            sampler2D _Normal;
-            sampler2D _Smooth_Map;
-            half _Smoothness;
-            sampler2D _Metallic_Map;
+            half4 _Color;
+            sampler2D _MainTex;
+            float4 _MainTex_ST;
+            sampler2D _BumpMap;
+            sampler2D _MetallicGlossMap;
             half _Metallic;
+            half _Glossiness;
+            sampler2D _EmissionMap;
+            half4 _EmissionColor;
 
             v2f vert (appdata v)
             {
@@ -61,7 +65,7 @@ Shader "HPipleline/Base"
                 o.tbn1 = float4(tangentWS.y, binormalWS.y, normalWS.y, posWS.y);
                 o.tbn2 = float4(tangentWS.z, binormalWS.z, normalWS.z, posWS.z);
                 o.vertex = UnityWorldToClipPos(posWS);
-                o.uv = TRANSFORM_TEX(v.uv, _Albedo);
+                o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 return o;
             }
 
@@ -70,22 +74,23 @@ Shader "HPipleline/Base"
                 out half4 gBuffer1 : SV_Target1,
                 out half4 gBuffer2 : SV_Target2)
             {
-                half3 albedo = tex2D(_Albedo, i.uv);
-                float4 packedNormal = tex2D(_Normal, i.uv);
-                half smoothness = tex2D(_Smooth_Map, i.uv).x * _Smoothness;
-                half metallic = tex2D(_Metallic_Map, i.uv).x * _Metallic;
+                half3 albedo = tex2D(_MainTex, i.uv) * _Color.rgb;
+                float3 normalTS = UnpackNormal(tex2D(_BumpMap, i.uv));
+                half4 metallicSmoothness = tex2D(_MetallicGlossMap, i.uv);
+                half smoothness = metallicSmoothness.a * _Glossiness;
+                half metallic = metallicSmoothness.r * _Metallic;
+                half emission = tex2D(_EmissionMap, i.uv).r * _EmissionColor.r;
 
                 float3 tangentWS = float3(i.tbn0.x, i.tbn1.x, i.tbn2.x);
                 float3 binormalWS = float3(i.tbn0.y, i.tbn1.y, i.tbn2.y);
                 float3 normalWS = float3(i.tbn0.z, i.tbn1.z, i.tbn2.z);
-                float3 normalTS = packedNormal * 2.0 - 1.0;
                 normalWS = mul(normalTS, float3x3(tangentWS, binormalWS, normalWS));
                 normalWS = normalize(normalWS);
                 gBuffer0 = float4(normalWS * 0.5 + 0.5, 0);
                 
                 half3 diffuse = albedo * lerp(0.96, 0, metallic);
                 half3 specular = lerp(0.04, albedo, metallic);
-                gBuffer1 = half4(diffuse, 0);
+                gBuffer1 = half4(diffuse, emission);
                 gBuffer2 = half4(specular, smoothness);
             }
             ENDCG

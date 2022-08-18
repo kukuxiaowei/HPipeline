@@ -89,7 +89,9 @@ Shader "Hidden/DeferredLighting"
             float4 frag (v2f i) : SV_Target
             {
                 float3 normalWS = tex2D(_GBuffer0, i.uv).xyz * 2.0 - 1.0;
-                float3 diffuse = tex2D(_GBuffer1, i.uv).rgb;
+                float4 gBufferData1 = tex2D(_GBuffer1, i.uv);
+                float3 diffuse = gBufferData1.rgb;
+                float3 emission = diffuse * gBufferData1.a;
                 float4 gBufferData2 = tex2D(_GBuffer2, i.uv);
                 float3 specular = gBufferData2.rgb;
                 float smoothness = gBufferData2.a;
@@ -101,7 +103,7 @@ Shader "Hidden/DeferredLighting"
                 float3 view = normalize(_WorldSpaceCameraPos - posWS.xyz);
                 
                 float3 brdf = BRDF(diffuse, specular, 1.0 - smoothness, normalWS, _MainLightPosition, view);
-                float3 col = brdf;
+                float3 col = brdf + emission;
                 
                 return float4(col, 1.0);
             }

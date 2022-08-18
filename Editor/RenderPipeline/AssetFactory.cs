@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace HPipeline
 {
-    static class AssetFactory
+    internal static class AssetFactory
     {
         class DoCreateNewAsset : UnityEditor.ProjectWindowCallback.EndNameEditAction
         {
@@ -19,7 +19,7 @@ namespace HPipeline
         }
 
         [MenuItem("Assets/Create/Rendering/HPipeline Asset", priority = 201)]
-        static void CreateRenderPipeline()
+        private static void CreateRenderPipeline()
         {
             ProjectWindowUtil.StartNameEditingIfProjectWindowExists(0, ScriptableObject.CreateInstance<DoCreateNewAsset>(),
                 "New HPipeline Asset.asset", null, null);

@@ -6,13 +6,15 @@ using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace HPipeline
 {
-    public sealed class RenderPipeline : UnityEngine.Rendering.RenderPipeline
+    public partial class RenderPipeline : UnityEngine.Rendering.RenderPipeline
     {
         RenderGraph m_RenderGraph = new RenderGraph("HPipeline");
 
         public RenderPipeline(RenderPipelineAsset asset)
         {
+            RTHandles.Initialize(Screen.width, Screen.height);
 
+            CreateMaterial();
         }
 
 #if UNITY_2021_1_OR_NEWER
@@ -28,7 +30,14 @@ namespace HPipeline
         protected override void Render(ScriptableRenderContext renderContext, Camera[] cameras)
 #endif
         {
-            foreach(var camera in cameras)
+            var camera = cameras[0];
+            if (camera == null) 
+                return;
+            CullingResults cullingResults = default;
+            if (!TryCull(camera, renderContext, out var cullingParams, ref cullingResults)) 
+                return;
+
+            /*foreach(var camera in cameras)
             {
                 if(camera == null)
                     continue;
@@ -36,11 +45,15 @@ namespace HPipeline
                 CullingResults cullingResults = default;
                 if(!TryCull(camera, renderContext, out var cullingParams, ref cullingResults))
                     continue;
+            }*/
 
-                
-            }
+            var pixelRect = camera.pixelRect;
+            RTHandles.SetReferenceSize((int)pixelRect.size.x, (int)pixelRect.size.y);
+            RenderTargetIdentifier cID = BuiltinRenderTextureType.CameraTarget;
             
             var cmd = CommandBufferPool.Get("");
+            renderContext.SetupCameraProperties(camera);
+
 #region RenderGraph
             var renderGraphParams = new RenderGraphParameters()
             {
@@ -51,14 +64,23 @@ namespace HPipeline
 
             using (m_RenderGraph.RecordAndExecute(renderGraphParams))
             {
-                // Add your passes here
+                var backBuffer = m_RenderGraph.ImportBackbuffer(cID);
+
+                AddGBufferPass(m_RenderGraph, cullingResults, camera, out var gBuffer);
+                cmd.SetGlobalVector("_MainLightPosition", -cullingResults.visibleLights[0].localToWorldMatrix.GetColumn(2));
+                AddDeferredLightingPass(m_RenderGraph, gBuffer, out var colorBuffer);
+                AddFinalBlitPass(m_RenderGraph, colorBuffer, backBuffer);
             }
+#endregion
+
+            renderContext.ExecuteCommandBuffer(cmd);
+            renderContext.Submit();
+            CommandBufferPool.Release(cmd);
 
             m_RenderGraph.EndFrame();
-#endregion
         }
 
-        static bool TryCull(
+        private static bool TryCull(
             Camera camera,
             ScriptableRenderContext renderContext,
             out ScriptableCullingParameters cullingParams,
@@ -77,14 +99,57 @@ namespace HPipeline
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
+            
+            DestroyMaterial();
 
             CleanupRenderGraph();
         }
 
-        void CleanupRenderGraph()
+        private void CleanupRenderGraph()
         {
             m_RenderGraph.Cleanup();
             m_RenderGraph = null;
+        }
+        
+#region Material
+
+        private Material _deferredLightingMaterial;
+        private Material _blitMaterial;
+
+        private void CreateMaterial()
+        {
+            _deferredLightingMaterial = new Material(Shader.Find("Hidden/DeferredLighting"));
+            _blitMaterial = new Material(Shader.Find("Hidden/Blit"));
+        }
+
+        private void DestroyMaterial()
+        {
+            Destroy(_deferredLightingMaterial);
+            Destroy(_blitMaterial);
+        }
+
+        private Material GetBlitMaterial()
+        {
+            return _blitMaterial;
+        }
+
+        private Material GetDeferredLightingMaterial()
+        {
+            return _deferredLightingMaterial;
+        }
+#endregion
+
+        private static void Destroy(Object obj)
+        {
+            if (obj == null) return;
+#if UNITY_EDITOR
+            if (Application.isPlaying)
+                Object.Destroy(obj);
+            else
+                Object.DestroyImmediate(obj);
+#else
+                Object.Destroy(obj);
+#endif
         }
     }
 }

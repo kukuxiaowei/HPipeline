@@ -14,7 +14,10 @@ namespace HPipeline
         {
             RTHandles.Initialize(Screen.width, Screen.height);
 
-            CreateMaterial();
+            LightDataInit();
+            ClusterLightsCullPassInit();
+            DeferredLightingPassInit();
+            FinalBlitPassInit();
         }
 
 #if UNITY_2021_1_OR_NEWER
@@ -52,7 +55,13 @@ namespace HPipeline
             RenderTargetIdentifier cID = BuiltinRenderTextureType.CameraTarget;
             
             var cmd = CommandBufferPool.Get("");
+
+            //Light
+            LightDataSetup(cmd, cullingResults, out var lightData);
+
+            //Camera
             renderContext.SetupCameraProperties(camera);
+            cmd.SetGlobalMatrix("_ScreenToWorldMatrix", (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
 
 #region RenderGraph
             var renderGraphParams = new RenderGraphParameters()
@@ -66,12 +75,9 @@ namespace HPipeline
             {
                 var backBuffer = m_RenderGraph.ImportBackbuffer(cID);
 
-                //SetCBuffer
-                cmd.SetGlobalVector("_MainLightPosition", -cullingResults.visibleLights[0].localToWorldMatrix.GetColumn(2));
-                cmd.SetGlobalMatrix("_ScreenToWorldMatrix", (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
-
                 //Pass
                 GBufferPassExecute(m_RenderGraph, cullingResults, camera, out var gBuffer);
+                ClusterLightsCullPassExecute(m_RenderGraph, camera, lightData);
                 DeferredLightingPassExecute(m_RenderGraph, gBuffer, out var colorBuffer);
                 FinalBlitPassExecute(m_RenderGraph, colorBuffer, backBuffer);
             }
@@ -103,8 +109,10 @@ namespace HPipeline
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
-            
-            DestroyMaterial();
+
+            LightDataCleanup();
+            DeferredLightingPassDispose();
+            FinalBlitPassDispose();
 
             CleanupRenderGraph();
         }
@@ -114,34 +122,7 @@ namespace HPipeline
             m_RenderGraph.Cleanup();
             m_RenderGraph = null;
         }
-        
-#region Material
 
-        private Material _deferredLightingMaterial;
-        private Material _blitMaterial;
-
-        private void CreateMaterial()
-        {
-            _deferredLightingMaterial = new Material(Shader.Find("Hidden/DeferredLighting"));
-            _blitMaterial = new Material(Shader.Find("Hidden/Blit"));
-        }
-
-        private void DestroyMaterial()
-        {
-            Destroy(_deferredLightingMaterial);
-            Destroy(_blitMaterial);
-        }
-
-        private Material GetBlitMaterial()
-        {
-            return _blitMaterial;
-        }
-
-        private Material GetDeferredLightingMaterial()
-        {
-            return _deferredLightingMaterial;
-        }
-#endregion
 
         private static void Destroy(Object obj)
         {

@@ -39,6 +39,7 @@ Shader "Hidden/DeferredLighting"
             sampler2D _GBuffer2;
             sampler2D _DepthBuffer;
             float4 _MainLightPosition;
+            float4 _MainLightColor;
             float4x4 _ScreenToWorldMatrix;
 
             float3 Lambert(float3 diffuse)
@@ -103,7 +104,7 @@ Shader "Hidden/DeferredLighting"
                 float3 view = normalize(_WorldSpaceCameraPos - posWS.xyz);
                 
                 float3 brdf = BRDF(diffuse, specular, 1.0 - smoothness, normalWS, _MainLightPosition, view);
-                float3 col = brdf + emission;
+                float3 col = brdf * _MainLightColor.rgb + emission;
                 
                 return float4(col, 1.0);
             }

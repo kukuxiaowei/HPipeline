@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Experimental.Rendering.RenderGraphModule;
 using UnityEngine.Rendering;
 
@@ -9,54 +10,64 @@ namespace HPipeline
         private const int clusterSizeX = 32;
         private const int clusterSizeY = 32;
         private const int clustersNumZ = 16;
+        private const int clusterPerLightCount = 16;
 
-        private ComputeShader _clusterLightsCullShader;
+        private ComputeShader _clusterLightsCullCS;
         private int _kernel;
         
         void ClusterLightsCullPassInit()
         {
-            _clusterLightsCullShader = Resources.Load<ComputeShader>("ClusterLightsCullShader");
-            _kernel = _clusterLightsCullShader.FindKernel("ClusterLightsCull");
+            _clusterLightsCullCS = Resources.Load<ComputeShader>("ClusterLightsCullCS");
+            _kernel = _clusterLightsCullCS.FindKernel("ClusterLightsCull");
         }
         
         class ClusterLightsCullPassData
         {
             public int ClustersNumX;
             public int ClustersNumY;
-            public ComputeShader ClusterLightsCullShader;
+            public ComputeShader ClusterLightsCullCS;
             public int Kernel;
-            public ComputeBufferHandle LightIndexStart;
-            public ComputeBufferHandle LightIndexLength;
+            public TextureHandle LightsCullTexture;
+            public ComputeBufferHandle LightIndexBuffer;
+            public ComputeBuffer LightData;
         }
         
-        void ClusterLightsCullPassExecute(RenderGraph renderGraph, CullingResults cullingResults, Camera camera)
+        void ClusterLightsCullPassExecute(RenderGraph renderGraph, Camera camera, ComputeBuffer lightData)
         {
             using (var builder = renderGraph.AddRenderPass<ClusterLightsCullPassData>("ClusterLightsCull Pass", out var passData))
             {
                 builder.EnableAsyncCompute(true);
 
                 var pixelRect = camera.pixelRect;
-                int clustersNumX = Mathf.CeilToInt(pixelRect.x / clusterSizeX);
-                int clustersNumY = Mathf.CeilToInt(pixelRect.y / clusterSizeY);
+                int clustersNumX = Mathf.CeilToInt(pixelRect.width / clusterSizeX);
+                int clustersNumY = Mathf.CeilToInt(pixelRect.height / clusterSizeY);
 
                 passData.ClustersNumX = clustersNumX;
                 passData.ClustersNumY = clustersNumY;
-                passData.ClusterLightsCullShader = _clusterLightsCullShader;
+                passData.ClusterLightsCullCS = _clusterLightsCullCS;
                 passData.Kernel = _kernel;
-                passData.LightIndexStart = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(
-                    new ComputeBufferDesc(clustersNumX * clustersNumY * clustersNumZ, sizeof(uint))
-                        { name = "LightIndexStart" }));
-                passData.LightIndexLength = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(
-                    new ComputeBufferDesc(clustersNumX * clustersNumY * clustersNumZ, sizeof(uint))
-                        { name = "LightIndexLength" }));
-                
+                var lightsCullTexture = renderGraph.CreateTexture(new TextureDesc(clustersNumX, clustersNumY)
+                { 
+                    slices = clustersNumZ,
+                    colorFormat = GraphicsFormat.R16G16_UInt,
+                    dimension = TextureDimension.Tex3D,
+                    enableRandomWrite = true,
+                    name = "LightsCullTexture"
+                });
+                passData.LightsCullTexture = builder.WriteTexture(lightsCullTexture);
+                var lightIndexBuffer = renderGraph.CreateComputeBuffer(new ComputeBufferDesc(clustersNumX * clustersNumY * clustersNumZ * clusterPerLightCount, sizeof(uint))
+                { 
+                    name = "LightIndexBuffer"
+                });
+                passData.LightIndexBuffer = builder.WriteComputeBuffer(lightIndexBuffer);
+                passData.LightData = lightData;
+
                 builder.SetRenderFunc((ClusterLightsCullPassData data, RenderGraphContext context) =>
                 {
-                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullShader, data.Kernel,
-                        ShaderIDs._LightIndexStart, data.LightIndexStart);
-                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullShader, data.Kernel,
-                        ShaderIDs._LightIndexLength, data.LightIndexLength);
-                    context.cmd.DispatchCompute(data.ClusterLightsCullShader, data.Kernel, passData.ClustersNumX, passData.ClustersNumY, 1);
+                    context.cmd.SetComputeTextureParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightsCullTexture, data.LightsCullTexture);
+                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightIndexBuffer, data.LightIndexBuffer);
+                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightData, data.LightData);
+                    context.cmd.DispatchCompute(data.ClusterLightsCullCS, data.Kernel, passData.ClustersNumX, passData.ClustersNumY, 1);
                 });
             }
         }

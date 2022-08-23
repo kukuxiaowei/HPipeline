@@ -1,0 +1,22 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel ClusterLightsCull
+
+struct LightData
+{
+    float4 position;
+    float4 color;
+};
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture3D<uint2> _LightsCullTexture;
+RWStructuredBuffer<uint> _LightIndexBuffer;
+StructuredBuffer<LightData> _LightData;
+
+[numthreads(16,1,1)]
+void ClusterLightsCull(uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+
+    _LightsCullTexture[id.xyz] = uint2(0, 0);
+}

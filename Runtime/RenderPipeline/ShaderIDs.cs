@@ -11,5 +11,7 @@ namespace HPipeline
         public static readonly int _GBuffer0 = Shader.PropertyToID("_GBuffer0");
         public static readonly int _GBuffer1 = Shader.PropertyToID("_GBuffer1");
         public static readonly int _GBuffer2 = Shader.PropertyToID("_GBuffer2");
+        public static readonly int _LightIndexStart = Shader.PropertyToID("_LightIndexStart");
+        public static readonly int _LightIndexLength = Shader.PropertyToID("_LightIndexLength");
     }
 }

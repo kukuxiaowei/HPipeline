@@ -71,9 +71,9 @@ namespace HPipeline
                 cmd.SetGlobalMatrix("_ScreenToWorldMatrix", (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
 
                 //Pass
-                AddGBufferPass(m_RenderGraph, cullingResults, camera, out var gBuffer);
-                AddDeferredLightingPass(m_RenderGraph, gBuffer, out var colorBuffer);
-                AddFinalBlitPass(m_RenderGraph, colorBuffer, backBuffer);
+                GBufferPassExecute(m_RenderGraph, cullingResults, camera, out var gBuffer);
+                DeferredLightingPassExecute(m_RenderGraph, gBuffer, out var colorBuffer);
+                FinalBlitPassExecute(m_RenderGraph, colorBuffer, backBuffer);
             }
 #endregion
 

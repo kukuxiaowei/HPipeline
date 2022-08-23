@@ -12,7 +12,7 @@ namespace HPipeline
             public TextureHandle ColorBuffer;
         }
 
-        private void AddDeferredLightingPass(RenderGraph renderGraph, GBuffer gBuffer, out TextureHandle colorBuffer)
+        private void DeferredLightingPassExecute(RenderGraph renderGraph, GBuffer gBuffer, out TextureHandle colorBuffer)
         {
             using (var builder = renderGraph.AddRenderPass<DeferredLightingPassData>("DeferredLighting Pass", out var passData))
             {

@@ -21,7 +21,7 @@ namespace HPipeline
             public RendererListHandle RendererList;
         }
         
-        void AddGBufferPass(RenderGraph renderGraph, CullingResults cullingResults, Camera camera, out GBuffer gBuffer)
+        void GBufferPassExecute(RenderGraph renderGraph, CullingResults cullingResults, Camera camera, out GBuffer gBuffer)
         {
             using (var builder = renderGraph.AddRenderPass<GBufferPassData>("GBuffer Pass", out var passData))
             {

@@ -11,7 +11,7 @@ namespace HPipeline
             public TextureHandle Destination;
         }
 
-        private void AddFinalBlitPass(RenderGraph renderGraph, TextureHandle source, TextureHandle destination)
+        private void FinalBlitPassExecute(RenderGraph renderGraph, TextureHandle source, TextureHandle destination)
         {
             using (var builder = renderGraph.AddRenderPass<FinalBlitPassData>("FinalBlit Pass", out var passData))
             {

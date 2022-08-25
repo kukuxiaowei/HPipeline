@@ -7,8 +7,8 @@ namespace HPipeline
 {
     public partial class RenderPipeline
     {
-        private const int clusterSizeX = 32;
-        private const int clusterSizeY = 32;
+        private const int clusterResX = 32;
+        private const int clusterResY = 32;
         private const int clustersNumZ = 16;
         private const int clusterPerLightCount = 16;
 
@@ -25,6 +25,7 @@ namespace HPipeline
         {
             public int ClustersNumX;
             public int ClustersNumY;
+            public float ClusterSizeZ;
             public ComputeShader ClusterLightsCullCS;
             public int Kernel;
             public TextureHandle LightsCullTexture;
@@ -39,11 +40,12 @@ namespace HPipeline
                 builder.EnableAsyncCompute(true);
 
                 var pixelRect = camera.pixelRect;
-                int clustersNumX = Mathf.CeilToInt(pixelRect.width / clusterSizeX);
-                int clustersNumY = Mathf.CeilToInt(pixelRect.height / clusterSizeY);
+                int clustersNumX = Mathf.CeilToInt(pixelRect.width / clusterResX);
+                int clustersNumY = Mathf.CeilToInt(pixelRect.height / clusterResY);
 
                 passData.ClustersNumX = clustersNumX;
                 passData.ClustersNumY = clustersNumY;
+                passData.ClusterSizeZ = camera.farClipPlane / clustersNumZ;
                 passData.ClusterLightsCullCS = _clusterLightsCullCS;
                 passData.Kernel = _kernel;
                 var lightsCullTexture = renderGraph.CreateTexture(new TextureDesc(clustersNumX, clustersNumY)
@@ -64,6 +66,8 @@ namespace HPipeline
 
                 builder.SetRenderFunc((ClusterLightsCullPassData data, RenderGraphContext context) =>
                 {
+                    context.cmd.SetGlobalVector(ShaderIDs._ClustersNumData, new Vector4(data.ClustersNumX, data.ClustersNumY, 1 / data.ClustersNumX, 1 / clustersNumY));
+                    context.cmd.SetGlobalFloat(ShaderIDs._ClusterSizeZ, data.ClusterSizeZ);
                     context.cmd.SetComputeTextureParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightsCullTexture, data.LightsCullTexture);
                     context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightIndexBuffer, data.LightIndexBuffer);
                     context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightData, data.LightData);

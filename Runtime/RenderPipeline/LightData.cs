@@ -31,8 +31,8 @@ namespace HPipeline
                 var visibleLight = cullingResults.visibleLights[i];
                 if(visibleLight.lightType == LightType.Directional)
                 {
-                    cmd.SetGlobalVector("_MainLightPosition", -visibleLight.localToWorldMatrix.GetColumn(2));
-                    cmd.SetGlobalVector("_MainLightColor", visibleLight.finalColor);
+                    cmd.SetGlobalVector(ShaderIDs._MainLightPosition, -visibleLight.localToWorldMatrix.GetColumn(2));
+                    cmd.SetGlobalVector(ShaderIDs._MainLightColor, visibleLight.finalColor);
                 }
                 else if(visibleLight.lightType == LightType.Point)
                 {
@@ -47,6 +47,8 @@ namespace HPipeline
             }
             _lightDataBuffer.SetData(_lightDataArray);
             lightDataBuffer = _lightDataBuffer;
+
+            cmd.SetGlobalInt(ShaderIDs._LightCount, _lightDataArray.Count);
         }
 
         void LightDataCleanup()

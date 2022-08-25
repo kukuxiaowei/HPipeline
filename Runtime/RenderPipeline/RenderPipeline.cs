@@ -61,7 +61,8 @@ namespace HPipeline
 
             //Camera
             renderContext.SetupCameraProperties(camera);
-            cmd.SetGlobalMatrix("_ScreenToWorldMatrix", (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
+            cmd.SetGlobalMatrix(ShaderIDs._ScreenToWorldMatrix, (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
+            cmd.SetGlobalMatrix(ShaderIDs._WorldToViewMatrix, camera.worldToCameraMatrix);
 
 #region RenderGraph
             var renderGraphParams = new RenderGraphParameters()

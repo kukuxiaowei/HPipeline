@@ -1,5 +1,6 @@
-// Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel ClusterLightsCull
+
+#define ClusterPerLightCount 16
 
 struct LightData
 {
@@ -7,16 +8,72 @@ struct LightData
     float4 color;
 };
 
-// Create a RenderTexture with enableRandomWrite flag and set it
-// with cs.SetTexture
+float4x4 _WorldToViewMatrix;
+
+uint _LightCount;
+float4 _ClustersNumData;//_ClustersNumX, _ClustersNumY, _ClustersNumXRcp, _ClustersNumYRcp avoid div zero
+float _ClusterSizeZ;
+
 RWTexture3D<uint2> _LightsCullTexture;
 RWStructuredBuffer<uint> _LightIndexBuffer;
 StructuredBuffer<LightData> _LightData;
 
-[numthreads(16,1,1)]
-void ClusterLightsCull(uint3 id : SV_DispatchThreadID)
+//https://lxjk.github.io/2018/03/25/Improve-Tile-based-Light-Culling-with-Spherical-sliced-Cone.html
+bool SphericalSlicedConeTest(float3 lightPosVS, float lightRadius, float3 tileCenterVec, float tileCos, float tileSin)
 {
-    // TODO: insert actual code here!
+    float lightDist = length(lightPosVS);
+    float3 lightVec = lightPosVS / lightDist;
+    float lightSin = saturate(lightRadius / lightDist);
+    float lightCos = sqrt(1.0 - lightSin * lightSin);
 
-    _LightsCullTexture[id.xyz] = uint2(0, 0);
+    float lightTileCos = dot(lightVec, tileCenterVec);
+    float lightTileSin = sqrt(1 - lightTileCos * lightTileCos);
+    //sum angle = light cone half angle + tile cone half angle
+    float sumCos = (lightRadius > lightDist) ? -1.0 : (tileCos * lightCos - tileSin * lightSin);
+
+    return lightTileCos < sumCos;
+}
+
+[numthreads(16,1,1)]
+void ClusterLightsCull(uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
+{
+    uint startIdx = ClusterPerLightCount * (_ClustersNumData.x * _ClustersNumData.y * groupIndex + _ClustersNumData.x * groupID.y + groupID.x);
+    uint lengthIdx = 0;
+
+    float2 uvMin = groupID.xy * _ClustersNumData.zw;
+    float2 uvMax = groupID.xy * _ClustersNumData.zw + _ClustersNumData.zw;
+    float4 uvMinMax = float4(uvMin, uvMax) * 2.0 - 1.0;
+    //TODO
+
+    float3 sides[4];
+    sides[0] = float3(uvMinMax.xy, 1.0);
+    sides[1] = float3(uvMinMax.xw, 1.0);
+    sides[2] = float3(uvMinMax.zy, 1.0);
+    sides[3] = float3(uvMinMax.zw, 1.0);
+
+    //calculate tile cone
+    float3 tileCenterVec = normalize(sides[0] + sides[1] + sides[2] + sides[3]);
+    float tileCos = min(min(min(dot(tileCenterVec, sides[0])
+        , dot(tileCenterVec, sides[1]))
+        , dot(tileCenterVec, sides[2]))
+        , dot(tileCenterVec, sides[3]));
+    float tileSin = sqrt(1 - tileCos * tileCos);
+
+
+    for (uint i = 0; i < _LightCount && lengthIdx < ClusterPerLightCount; i++)
+    {
+        LightData light = _LightData[i];
+        float3 lightPosWS = light.position.xyz;
+        float lightRadius = light.position.w;
+
+        float3 lightPosVS = mul(_WorldToViewMatrix, float4(lightPosWS, 1.0)).xyz;
+
+        if (SphericalSlicedConeTest(lightPosVS, lightRadius, tileCenterVec, tileCos, tileSin))
+        {
+            _LightIndexBuffer[startIdx + lengthIdx] = i;
+            lengthIdx++;
+        }
+    }
+
+    _LightsCullTexture[uint3(groupID.xy, groupIndex)] = uint2(startIdx, lengthIdx);
 }

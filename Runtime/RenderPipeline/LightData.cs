@@ -41,7 +41,7 @@ namespace HPipeline
                         Position = visibleLight.localToWorldMatrix.GetColumn(3),
                         Color = visibleLight.finalColor
                     };
-                    lightData.Position.w = visibleLight.range;
+                    lightData.Position.w = 1.0f / visibleLight.range;
                     _lightDataArray.Add(lightData);
                 }
             }

@@ -79,8 +79,8 @@ namespace HPipeline
 
                 //Pass
                 GBufferPassExecute(m_RenderGraph, cullingResults, camera, out var gBuffer);
-                ClusterLightsCullPassExecute(m_RenderGraph, camera, lightData);
-                DeferredLightingPassExecute(m_RenderGraph, gBuffer, out var colorBuffer);
+                ClusterLightsCullPassExecute(m_RenderGraph, camera, lightData, out var clusterLightsCullResult);
+                DeferredLightingPassExecute(m_RenderGraph, gBuffer, clusterLightsCullResult, out var colorBuffer);
                 FinalBlitPassExecute(m_RenderGraph, colorBuffer, backBuffer);
             }
 #endregion

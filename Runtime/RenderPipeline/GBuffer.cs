@@ -28,27 +28,31 @@ namespace HPipeline
                 var depthBuffer = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
                 {
                     depthBufferBits = DepthBits.Depth32,
+                    filterMode = FilterMode.Point,
                     clearBuffer = true,
                     name = "DepthBuffer"
                 });
                 var gBuffer0 = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
                 {
-                    colorFormat = GraphicsFormat.A2B10G10R10_UNormPack32, 
-                    clearBuffer = true, 
+                    colorFormat = GraphicsFormat.A2B10G10R10_UNormPack32,
+                    filterMode = FilterMode.Point,
+                    clearBuffer = true,
                     clearColor = Color.black,
                     name = "GBuffer0"
                 });
                 var gBuffer1 = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
                 {
-                    colorFormat = GraphicsFormat.R8G8B8A8_UNorm, 
-                    clearBuffer = true, 
+                    colorFormat = GraphicsFormat.R8G8B8A8_UNorm,
+                    filterMode = FilterMode.Point,
+                    clearBuffer = true,
                     clearColor = Color.black,
                     name = "GBuffer1"
                 });
                 var gBuffer2 = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
                 {
-                    colorFormat = GraphicsFormat.R8G8B8A8_UNorm, 
-                    clearBuffer = true, 
+                    colorFormat = GraphicsFormat.R8G8B8A8_UNorm,
+                    filterMode = FilterMode.Point,
+                    clearBuffer = true,
                     clearColor = Color.black,
                     name = "GBuffer2"
                 });

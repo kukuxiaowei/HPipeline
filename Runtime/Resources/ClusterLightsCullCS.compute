@@ -10,13 +10,14 @@ struct LightData
 
 float4x4 _WorldToViewMatrix;
 
-uint _LightCount;
+float _LightCount;
 float4 _CameraData;//Near, Far
 float4 _ClustersNumData;//ClustersNumX, ClustersNumY, ClustersNumXRcp, ClustersNumYRcp
 float4 _ClusterSizeData;//ClusterSizeX, ClusterSizeY, ClusterSizeZ, ClusterSizeZRcp
 
 RWTexture3D<uint2> _LightsCullTexture;
 RWStructuredBuffer<uint> _LightIndexBuffer;
+RWStructuredBuffer<uint> _LightStartOffsetCounter;
 StructuredBuffer<LightData> _LightData;
 
 groupshared uint gs_PointLightCount[16];
@@ -35,7 +36,7 @@ bool SphericalSlicedConeTest(float3 lightPosVS, float lightRadius, float3 tileCe
     //sum angle = light cone half angle + tile cone half angle
     float sumCos = (lightRadius > lightDist) ? -1.0 : (tileCos * lightCos - tileSin * lightSin);
 
-    return lightTileCos < sumCos;
+    return lightTileCos >= sumCos;
 }
 
 bool AABBTest(float3 sides[4], float tileZMin, float tileZMax, float3 lightPosVS, float lightRadius2)
@@ -69,6 +70,7 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     if (groupIdx < 16)
     {
         gs_PointLightCount[groupIdx] = 0;
+        _LightStartOffsetCounter[0] = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -92,13 +94,15 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     float tileSin = sqrt(1 - tileCos * tileCos);
 
     //loop through light list
-    for (uint lightIdx = 0; lightIdx < _LightCount; lightIdx += 256)
+    uint lightCount = _LightCount;
+    for (uint lightIdx = groupIdx; lightIdx < lightCount; lightIdx += 256)
     {
         LightData light = _LightData[lightIdx];
         float3 lightPosWS = light.position.xyz;
         float lightRadius = light.position.w;
 
         float3 lightPosVS = mul(_WorldToViewMatrix, float4(lightPosWS, 1.0)).xyz;
+        lightPosVS.z = -(lightPosVS.z);
         float lightZMin = lightPosVS.z - lightRadius;
         float lightZMax = lightPosVS.z + lightRadius;
 
@@ -134,18 +138,25 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (groupIdx < 16)
+    uint slice = groupIdx;
+    uint lightCountCulled = gs_PointLightCount[slice];
+    lightCountCulled = min(lightCountCulled, ClusterMaxLightCount);
+    
+    uint curStartOffset;
+    if (slice < 16)
     {
-        uint startIdx = ClusterMaxLightCount * (_ClustersNumData.x * _ClustersNumData.y * groupIdx + _ClustersNumData.x * groupID.y + groupID.x);
+        InterlockedAdd(_LightStartOffsetCounter[0], lightCountCulled, curStartOffset);
+    }
+    GroupMemoryBarrierWithGroupSync();
 
-        uint lightCount = gs_PointLightCount[groupIdx];
-        lightCount = min(lightCount, ClusterMaxLightCount);
-        for (uint i = 0; i < lightCount; ++i)
+    if (slice < 16)
+    {
+        for (uint i = 0; i < lightCountCulled; ++i)
         {
-            uint lightIdx = gs_PointLightList[groupIdx][i];
-            _LightIndexBuffer[startIdx + i] = lightIdx;
+            uint lightIdx = gs_PointLightList[slice][i];
+            _LightIndexBuffer[curStartOffset + i] = lightIdx;
         }
 
-        _LightsCullTexture[uint3(groupID.xy, groupIdx)] = uint2(startIdx, lightCount);
+        _LightsCullTexture[uint3(groupID.xy, slice)] = uint2(curStartOffset, lightCountCulled);
     }
 }

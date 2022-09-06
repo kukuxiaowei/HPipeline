@@ -50,7 +50,6 @@ namespace HPipeline
                     propertyBlock.SetTexture(ShaderIDs._GBuffer2, data.GBufferData.GBuffer2);
                     propertyBlock.SetTexture(ShaderIDs._LightsCullTexture, data.ClusterLightsCullResult.LightsCullTexture);
                     propertyBlock.SetBuffer(ShaderIDs._LightIndexBuffer, data.ClusterLightsCullResult.LightIndexBuffer);
-                    propertyBlock.SetBuffer(ShaderIDs._LightData, data.ClusterLightsCullResult.LightData);
 
                     context.cmd.DrawProcedural(Matrix4x4.identity, data.DeferredLightingMaterial, 0, MeshTopology.Triangles, 3, 1, propertyBlock);
                 });

@@ -17,14 +17,14 @@ Shader "Hidden/DeferredLighting"
             struct v2f
             {
                 float2 uv : TEXCOORD0;
-                //float4 vertex : SV_POSITION;
+                float4 vertex : SV_POSITION;
             };
 
-            v2f vert (uint vertexID : SV_VertexID, out float4 pos : SV_POSITION)
+            v2f vert (uint vertexID : SV_VertexID)
             {
                 v2f o;
                 float2 uv = float2((vertexID << 1) & 2, vertexID & 2);
-                pos = float4(uv * 2.0 - 1.0, UNITY_NEAR_CLIP_VALUE, 1.0);
+                o.vertex = float4(uv * 2.0 - 1.0, UNITY_NEAR_CLIP_VALUE, 1.0);
 #if UNITY_UV_STARTS_AT_TOP
                 uv.y = 1.0 - uv.y;
 #endif
@@ -42,7 +42,7 @@ Shader "Hidden/DeferredLighting"
             sampler2D _GBuffer1;
             sampler2D _GBuffer2;
             sampler2D _DepthBuffer;
-            sampler3D _LightsCullTexture;
+            Texture3D<uint2> _LightsCullTexture;
             StructuredBuffer<uint> _LightIndexBuffer;
             StructuredBuffer<LightData> _LightData;
             float4 _MainLightPosition;
@@ -98,7 +98,7 @@ Shader "Hidden/DeferredLighting"
                 return (Lambert(diffuse) + specular) * NdotL;
             }
 
-            float4 frag (v2f i, UNITY_VPOS_TYPE screenPos : VPOS) : SV_Target
+            float4 frag (v2f i) : SV_Target
             {
                 float3 normalWS = tex2D(_GBuffer0, i.uv).xyz * 2.0 - 1.0;
                 float4 gBufferData1 = tex2D(_GBuffer1, i.uv);
@@ -118,9 +118,10 @@ Shader "Hidden/DeferredLighting"
                 float3 brdf = BRDF(diffuse, specular, roughness, normalWS, _MainLightPosition, view);
                 float3 col = brdf * _MainLightColor.rgb + emission;
 
-                float z = Linear01Depth(depth);
-                float2 xy = screenPos.xy / (ClusterRes * _ClustersNumData.xy);
-                uint2 lightStartIdxAndCount = tex3D(_LightsCullTexture, float3(xy, z));
+                uint z = (uint)(Linear01Depth(depth) * ClustersNumZ);
+                z = clamp(z, 0, 15);
+                uint2 xy = i.vertex.xy / ClusterRes;
+                uint2 lightStartIdxAndCount = _LightsCullTexture[uint3(xy, z)];
                 for (uint i = 0; i < lightStartIdxAndCount.y; ++i)
                 {
                     uint lightIdx = _LightIndexBuffer[lightStartIdxAndCount.x + i];
@@ -129,7 +130,8 @@ Shader "Hidden/DeferredLighting"
                     float3 lightDir = posWS.xyz - light.position.xyz;
                     float lightDis = length(lightDir);
                     lightDir = lightDir / lightDis;
-                    float lightRangeRcp = light.position.w;
+                    float lightRange = light.position.w;
+                    float lightRangeRcp = rcp(lightRange);
                     float atten = saturate(1.0 - lightDis * lightDis * lightRangeRcp * lightRangeRcp);
                     brdf = BRDF(diffuse, specular, roughness, normalWS, lightDir, view);
                     col += brdf * light.color.rgb * atten;

@@ -19,6 +19,7 @@ namespace HPipeline
 
         public static readonly int _LightsCullTexture = Shader.PropertyToID("_LightsCullTexture");
         public static readonly int _LightIndexBuffer = Shader.PropertyToID("_LightIndexBuffer");
+        public static readonly int _LightStartOffsetCounter = Shader.PropertyToID("_LightStartOffsetCounter");
         public static readonly int _LightData = Shader.PropertyToID("_LightData");
         public static readonly int _LightCount = Shader.PropertyToID("_LightCount");
         public static readonly int _ClustersNumData = Shader.PropertyToID("_ClustersNumData");

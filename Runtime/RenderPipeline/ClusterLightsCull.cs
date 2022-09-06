@@ -11,7 +11,6 @@ namespace HPipeline
         {
             public TextureHandle LightsCullTexture;
             public ComputeBufferHandle LightIndexBuffer;
-            public ComputeBuffer LightData;
         }
 
         class ClusterLightsCullPassData
@@ -19,6 +18,8 @@ namespace HPipeline
             public ComputeShader ClusterLightsCullCS;
             public int Kernel;
             public ClusterLightsCullResult ClusterLightsCullResult;
+            public ComputeBufferHandle LightStartOffsetCounter;
+            public ComputeBuffer LightData;
         }
 
         private const int clusterResX = 32;
@@ -57,30 +58,35 @@ namespace HPipeline
                     name = "LightsCullTexture"
                 });
                 passData.ClusterLightsCullResult.LightsCullTexture = builder.WriteTexture(lightsCullTexture);
-                var lightIndexBuffer = renderGraph.CreateComputeBuffer(new ComputeBufferDesc(clustersNumX * clustersNumY * clustersNumZ * clusterMaxLightCount, sizeof(uint))
+                var lightIndexBuffer = renderGraph.CreateComputeBuffer(new ComputeBufferDesc(65536, sizeof(uint))
                 { 
                     name = "LightIndexBuffer"
                 });
+                var lightStartOffsetCounter = renderGraph.CreateComputeBuffer(new ComputeBufferDesc(1, sizeof(uint))
+                { 
+                    name = "LightStartOffsetCounter"
+                });
                 passData.ClusterLightsCullResult.LightIndexBuffer = builder.WriteComputeBuffer(lightIndexBuffer);
-                passData.ClusterLightsCullResult.LightData = lightData;
+                passData.LightStartOffsetCounter = builder.WriteComputeBuffer(lightStartOffsetCounter);
+                passData.LightData = lightData;
 
                 clusterLightsCullResult = new ClusterLightsCullResult
                 {
                     LightsCullTexture = lightsCullTexture,
                     LightIndexBuffer = lightIndexBuffer,
-                    LightData = lightData
                 };
 
                 builder.SetRenderFunc((ClusterLightsCullPassData data, RenderGraphContext context) =>
                 {
                     context.cmd.SetGlobalVector(ShaderIDs._ClustersNumData, 
                         new Vector4(clustersNumX, clustersNumY, clusterResX / camera.pixelRect.width, clusterResY / camera.pixelRect.height));
-                    float tanFov = Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad);
+                    float tanFov = Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad);
                     context.cmd.SetComputeVectorParam(data.ClusterLightsCullCS, ShaderIDs._ClusterSizeData, 
-                        new Vector4(tanFov * 2 * camera.aspect, tanFov * 2, camera.farClipPlane / clustersNumZ, clustersNumZ / camera.farClipPlane));
+                        new Vector4(tanFov * camera.aspect, tanFov, camera.farClipPlane / clustersNumZ, clustersNumZ / camera.farClipPlane));
                     context.cmd.SetComputeTextureParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightsCullTexture, data.ClusterLightsCullResult.LightsCullTexture);
                     context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightIndexBuffer, data.ClusterLightsCullResult.LightIndexBuffer);
-                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightData, data.ClusterLightsCullResult.LightData);
+                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightStartOffsetCounter, data.LightStartOffsetCounter);
+                    context.cmd.SetComputeBufferParam(data.ClusterLightsCullCS, data.Kernel, ShaderIDs._LightData, data.LightData);
                     context.cmd.DispatchCompute(data.ClusterLightsCullCS, data.Kernel, clustersNumX, clustersNumY, 1);
                 });
             }

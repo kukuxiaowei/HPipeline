@@ -41,14 +41,15 @@ namespace HPipeline
                         Position = visibleLight.localToWorldMatrix.GetColumn(3),
                         Color = visibleLight.finalColor
                     };
-                    lightData.Position.w = 1.0f / visibleLight.range;
+                    lightData.Position.w = visibleLight.range;
                     _lightDataArray.Add(lightData);
                 }
             }
             _lightDataBuffer.SetData(_lightDataArray);
             lightDataBuffer = _lightDataBuffer;
 
-            cmd.SetGlobalInt(ShaderIDs._LightCount, _lightDataArray.Count);
+            cmd.SetGlobalBuffer(ShaderIDs._LightData, _lightDataBuffer);
+            cmd.SetGlobalFloat(ShaderIDs._LightCount, _lightDataArray.Count);
         }
 
         void LightDataCleanup()

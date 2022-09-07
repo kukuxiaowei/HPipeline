@@ -41,6 +41,7 @@ Shader "Hidden/DeferredLighting"
             sampler2D _GBuffer0;
             sampler2D _GBuffer1;
             sampler2D _GBuffer2;
+            sampler2D _BakedGI;
             sampler2D _DepthBuffer;
             Texture3D<uint2> _LightsCullTexture;
             StructuredBuffer<uint> _LightIndexBuffer;
@@ -112,6 +113,7 @@ Shader "Hidden/DeferredLighting"
                 float4 gBufferData1 = tex2D(_GBuffer1, i.uv);
                 float3 diffuse = gBufferData1.rgb;
                 float3 emission = diffuse * gBufferData1.a;
+                float3 indirectDiffuse = tex2D(_BakedGI, i.uv) * diffuse;
                 float4 gBufferData2 = tex2D(_GBuffer2, i.uv);
                 float3 specular = gBufferData2.rgb;
                 float smoothness = gBufferData2.a;
@@ -129,9 +131,13 @@ Shader "Hidden/DeferredLighting"
                 posWS /= posWS.w;
                 float3 view = normalize(_WorldSpaceCameraPos - posWS.xyz);
                 
-                float3 brdf = BRDF(diffuse, specular, roughness, normalWS, _MainLightPosition, view);
-                float3 col = brdf * _MainLightColor.rgb + emission;
+                float3 col = indirectDiffuse;
 
+                //DirectionalLighting
+                float3 brdf = BRDF(diffuse, specular, roughness, normalWS, _MainLightPosition, view);
+                col += brdf * _MainLightColor.rgb + emission;
+
+                //PointLighting
                 uint z = (uint)(LinearEyeDepth(depth) * _ClusterSizeData.w);
                 z = clamp(z, 0, 15);
                 uint2 xy = i.vertex.xy / ClusterRes;

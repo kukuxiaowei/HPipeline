@@ -26,12 +26,15 @@ Shader "HPipleline/Base"
 
             #include "UnityCG.cginc"
 
+            #pragma multi_compile _ LIGHTMAP_ON
+
             struct appdata
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
                 float3 normal : NORMAL;
                 float4 tangent : TANGENT;
+                float2 uv1 : TEXCOORD1;
             };
 
             struct v2f
@@ -41,6 +44,9 @@ Shader "HPipleline/Base"
                 float4 tbn0 : TEXCOORD1;
                 float4 tbn1 : TEXCOORD2;
                 float4 tbn2 : TEXCOORD3;
+#if defined(LIGHTMAP_ON)
+                float2 lightmapUV : TEXCOORD04;
+#endif
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -68,13 +74,17 @@ Shader "HPipleline/Base"
                 o.tbn2 = float4(tangentWS.z, binormalWS.z, normalWS.z, posWS.z);
                 o.vertex = UnityWorldToClipPos(posWS);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+#if defined(LIGHTMAP_ON)
+                o.lightmapUV = v.uv1 * unity_LightmapST.xy + unity_LightmapST.zw;
+#endif
                 return o;
             }
 
             void frag (v2f i,
                 out float4 gBuffer0 : SV_Target0,
                 out half4 gBuffer1 : SV_Target1,
-                out half4 gBuffer2 : SV_Target2)
+                out half4 gBuffer2 : SV_Target2,
+                out half3 bakedGI : SV_Target3)
             {
                 half3 albedo = tex2D(_MainTex, i.uv) * _Color.rgb;
                 float3 normalTS = UnpackNormal(tex2D(_BumpMap, i.uv));
@@ -94,6 +104,11 @@ Shader "HPipleline/Base"
                 half3 specular = lerp(0.04, albedo, metallic);
                 gBuffer1 = half4(diffuse, emission);
                 gBuffer2 = half4(specular, smoothness);
+#if defined(LIGHTMAP_ON)
+                bakedGI = DecodeLightmap(UNITY_SAMPLE_TEX2D(unity_Lightmap, i.lightmapUV));
+#else
+                bakedGI = 0;
+#endif
             }
             ENDCG
         }

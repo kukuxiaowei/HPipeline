@@ -14,6 +14,7 @@ namespace HPipeline
             public TextureHandle GBuffer0;
             public TextureHandle GBuffer1;
             public TextureHandle GBuffer2;
+            public TextureHandle BakedGI;
         }
 
         private class GBufferPassData
@@ -56,17 +57,27 @@ namespace HPipeline
                     clearColor = Color.black,
                     name = "GBuffer2"
                 });
+                var bakedGI = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
+                {
+                    colorFormat = GraphicsFormat.B10G11R11_UFloatPack32,
+                    filterMode = FilterMode.Point,
+                    clearBuffer = true,
+                    clearColor = Color.black,
+                    name = "BakedGI"
+                });
                 gBuffer = new GBuffer
                 {
                     DepthBuffer = builder.UseDepthBuffer(depthBuffer, DepthAccess.ReadWrite),
                     GBuffer0 = builder.UseColorBuffer(gBuffer0, 0),
                     GBuffer1 = builder.UseColorBuffer(gBuffer1, 1),
                     GBuffer2 = builder.UseColorBuffer(gBuffer2, 2),
+                    BakedGI = builder.UseColorBuffer(bakedGI, 3),
                 };
 
                 passData.RendererList = builder.UseRendererList(renderGraph.CreateRendererList(
                     new RendererListDesc(ShaderIDs.GBuffer, cullingResults, camera)
                     {
+                        rendererConfiguration = PerObjectData.Lightmaps,
                         renderQueueRange = RenderQueueRange.opaque, 
                         sortingCriteria = SortingCriteria.CommonOpaque
                     }));

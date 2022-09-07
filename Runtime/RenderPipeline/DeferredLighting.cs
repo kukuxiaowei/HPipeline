@@ -29,6 +29,7 @@ namespace HPipeline
                 passData.GBufferData.GBuffer0 = builder.ReadTexture(gBuffer.GBuffer0);
                 passData.GBufferData.GBuffer1 = builder.ReadTexture(gBuffer.GBuffer1);
                 passData.GBufferData.GBuffer2 = builder.ReadTexture(gBuffer.GBuffer2);
+                passData.GBufferData.BakedGI = builder.ReadTexture(gBuffer.BakedGI);
                 passData.ClusterLightsCullResult.LightsCullTexture = builder.ReadTexture(clusterLightsCullResult.LightsCullTexture);
                 passData.ClusterLightsCullResult.LightIndexBuffer = builder.ReadComputeBuffer(clusterLightsCullResult.LightIndexBuffer);
                 colorBuffer = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
@@ -48,6 +49,7 @@ namespace HPipeline
                     propertyBlock.SetTexture(ShaderIDs._GBuffer0, data.GBufferData.GBuffer0);
                     propertyBlock.SetTexture(ShaderIDs._GBuffer1, data.GBufferData.GBuffer1);
                     propertyBlock.SetTexture(ShaderIDs._GBuffer2, data.GBufferData.GBuffer2);
+                    propertyBlock.SetTexture(ShaderIDs._BakedGI, data.GBufferData.BakedGI);
                     propertyBlock.SetTexture(ShaderIDs._LightsCullTexture, data.ClusterLightsCullResult.LightsCullTexture);
                     propertyBlock.SetBuffer(ShaderIDs._LightIndexBuffer, data.ClusterLightsCullResult.LightIndexBuffer);
 

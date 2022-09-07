@@ -43,6 +43,7 @@ Shader "HPipleline/Base"
                 float4 tbn2 : TEXCOORD3;
             };
 
+            CBUFFER_START(UnityPerMaterial)
             half4 _Color;
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -52,6 +53,7 @@ Shader "HPipleline/Base"
             half _Glossiness;
             sampler2D _EmissionMap;
             half4 _EmissionColor;
+            CBUFFER_END
 
             v2f vert (appdata v)
             {

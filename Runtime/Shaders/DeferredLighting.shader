@@ -52,6 +52,14 @@ Shader "Hidden/DeferredLighting"
             #define ClusterRes 32
             #define ClustersNumZ 16
             float4 _ClustersNumData;//ClustersNumX, ClustersNumY
+            float4 _ClusterSizeData;//ClusterSizeX, ClusterSizeY, ClusterSizeZ, ClusterSizeZRcp
+
+            float Pow4(float x)
+            {
+                x = x * x;
+                x = x * x;
+                return x;
+            }
 
             float3 Lambert(float3 diffuse)
             {
@@ -110,15 +118,21 @@ Shader "Hidden/DeferredLighting"
                 float roughness = 1.0 - smoothness;
                 
                 float depth = tex2D(_DepthBuffer, i.uv).r;
-                float4 posCS = float4(i.uv * 2.0 - 1.0, depth, 1.0);
-                float4 posWS = mul(_ScreenToWorldMatrix, posCS);
+                
+                #if UNITY_REVERSED_Z
+				float3 posCS = float3(i.uv, 1.0 - depth) * 2.0 - 1.0;
+                #else
+                float3 posCS = float3(i.uv, depth) * 2.0 - 1.0;
+				#endif
+                
+                float4 posWS = mul(_ScreenToWorldMatrix, float4(posCS, 1.0));
                 posWS /= posWS.w;
                 float3 view = normalize(_WorldSpaceCameraPos - posWS.xyz);
                 
                 float3 brdf = BRDF(diffuse, specular, roughness, normalWS, _MainLightPosition, view);
                 float3 col = brdf * _MainLightColor.rgb + emission;
 
-                uint z = (uint)(Linear01Depth(depth) * ClustersNumZ);
+                uint z = (uint)(LinearEyeDepth(depth) * _ClusterSizeData.w);
                 z = clamp(z, 0, 15);
                 uint2 xy = i.vertex.xy / ClusterRes;
                 uint2 lightStartIdxAndCount = _LightsCullTexture[uint3(xy, z)];
@@ -127,12 +141,15 @@ Shader "Hidden/DeferredLighting"
                     uint lightIdx = _LightIndexBuffer[lightStartIdxAndCount.x + i];
                     LightData light = _LightData[lightIdx];
 
-                    float3 lightDir = posWS.xyz - light.position.xyz;
-                    float lightDis = length(lightDir);
-                    lightDir = lightDir / lightDis;
+                    //atten = smooth/x^2, smooth = saturate(1-(x/r)^4)^2
+                    float3 lightDir = light.position.xyz - posWS.xyz;
+                    float lightDisSqr = dot(lightDir, lightDir);
+                    float lightDisRcp = rsqrt(lightDisSqr);
+                    lightDir = lightDir * lightDisRcp;
                     float lightRange = light.position.w;
-                    float lightRangeRcp = rcp(lightRange);
-                    float atten = saturate(1.0 - lightDis * lightDis * lightRangeRcp * lightRangeRcp);
+                    float attenSmooth = saturate(1.0 - Pow4(rcp(lightDisRcp * lightRange)));
+                    float atten = attenSmooth * lightDisRcp;
+                    atten = atten * atten;
                     brdf = BRDF(diffuse, specular, roughness, normalWS, lightDir, view);
                     col += brdf * light.color.rgb * atten;
                 }

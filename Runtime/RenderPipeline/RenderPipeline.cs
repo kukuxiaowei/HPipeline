@@ -12,6 +12,8 @@ namespace HPipeline
 
         public RenderPipeline(RenderPipelineAsset asset)
         {
+            GraphicsSettings.useScriptableRenderPipelineBatching = true;
+
             RTHandles.Initialize(Screen.width, Screen.height);
 
             LightDataInit();

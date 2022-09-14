@@ -44,7 +44,7 @@ namespace HPipeline
 
                 builder.SetRenderFunc((DeferredLightingPassData data, RenderGraphContext context) =>
                 {
-                    var propertyBlock = new MaterialPropertyBlock();
+                    var propertyBlock = context.renderGraphPool.GetTempMaterialPropertyBlock();
                     propertyBlock.SetTexture(ShaderIDs._DepthBuffer, data.GBufferData.DepthBuffer);
                     propertyBlock.SetTexture(ShaderIDs._GBuffer0, data.GBufferData.GBuffer0);
                     propertyBlock.SetTexture(ShaderIDs._GBuffer1, data.GBufferData.GBuffer1);

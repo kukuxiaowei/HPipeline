@@ -58,6 +58,8 @@ bool AABBTest(float3 sides[4], float tileZMin, float tileZMax, float3 lightPosVS
         AABBMin = min(AABBMin, AABB[i]);
         AABBMax = max(AABBMax, AABB[i]);
     }
+    /*float3 distanceFromAABB = max(max(lightPosVS - AABBMax, AABBMin - lightPosVS), half3(0.0, 0.0, 0.0));
+    return lightRadius2 >= distanceFromAABB * distanceFromAABB;*/
     float3 AABBCenter = (AABBMax + AABBMin) * 0.5;
     float3 AABBExtent = (AABBMax - AABBMin) * 0.5;
     float3 lightPosInAABB = max(abs(lightPosVS - AABBCenter) - AABBExtent, 0.0);

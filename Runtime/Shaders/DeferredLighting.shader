@@ -38,11 +38,11 @@ Shader "Hidden/DeferredLighting"
                 float4 color;
             };
 
-            sampler2D _GBuffer0;
-            sampler2D _GBuffer1;
-            sampler2D _GBuffer2;
-            sampler2D _BakedGI;
-            sampler2D _DepthBuffer;
+            Texture2D<float4> _GBuffer0;
+            Texture2D<float4> _GBuffer1;
+            Texture2D<float4> _GBuffer2;
+            Texture2D<float3> _BakedGI;
+            Texture2D<float> _DepthBuffer;
             Texture3D<uint2> _LightsCullTexture;
             StructuredBuffer<uint> _LightIndexBuffer;
             StructuredBuffer<LightData> _LightData;
@@ -109,17 +109,18 @@ Shader "Hidden/DeferredLighting"
 
             float4 frag (v2f i) : SV_Target
             {
-                float3 normalWS = tex2D(_GBuffer0, i.uv).xyz * 2.0 - 1.0;
-                float4 gBufferData1 = tex2D(_GBuffer1, i.uv);
+                uint2 posSS = i.vertex.xy;
+                float3 normalWS = _GBuffer0[posSS] * 2.0 - 1.0;
+                float4 gBufferData1 = _GBuffer1[posSS];
                 float3 diffuse = gBufferData1.rgb;
                 float3 emission = diffuse * gBufferData1.a;
-                float3 indirectDiffuse = tex2D(_BakedGI, i.uv) * diffuse;
-                float4 gBufferData2 = tex2D(_GBuffer2, i.uv);
+                float3 indirectDiffuse = _BakedGI[posSS] * diffuse;
+                float4 gBufferData2 = _GBuffer2[posSS];
                 float3 specular = gBufferData2.rgb;
                 float smoothness = gBufferData2.a;
                 float roughness = 1.0 - smoothness;
                 
-                float depth = tex2D(_DepthBuffer, i.uv).r;
+                float depth = _DepthBuffer[posSS];
                 
                 #if UNITY_REVERSED_Z
 				float3 posCS = float3(i.uv, 1.0 - depth) * 2.0 - 1.0;
@@ -140,7 +141,7 @@ Shader "Hidden/DeferredLighting"
                 //PointLighting
                 uint z = (uint)(LinearEyeDepth(depth) * _ClusterSizeData.w);
                 z = clamp(z, 0, 15);
-                uint2 xy = i.vertex.xy / ClusterRes;
+                uint2 xy = posSS / ClusterRes;
                 uint2 lightStartIdxAndCount = _LightsCullTexture[uint3(xy, z)];
                 for (uint i = 0; i < lightStartIdxAndCount.y; ++i)
                 {

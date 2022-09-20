@@ -16,6 +16,7 @@ namespace HPipeline
 
             RTHandles.Initialize(Screen.width, Screen.height);
 
+            IBL.instance.ProbesDataInit();
             LightDataInit();
             ClusterLightsCullPassInit();
             DeferredLightingPassInit();
@@ -66,6 +67,9 @@ namespace HPipeline
             cmd.SetGlobalMatrix(ShaderIDs._ScreenToWorldMatrix, (camera.projectionMatrix * camera.worldToCameraMatrix).inverse);
             cmd.SetGlobalMatrix(ShaderIDs._WorldToViewMatrix, camera.worldToCameraMatrix);
             cmd.SetGlobalVector(ShaderIDs._CameraData, new Vector4(camera.nearClipPlane, camera.farClipPlane));
+            
+            //IBL
+            IBL.instance.ProbesDataSetup();
 
 #region RenderGraph
             var renderGraphParams = new RenderGraphParameters()
@@ -114,6 +118,7 @@ namespace HPipeline
         {
             base.Dispose(disposing);
 
+            IBL.instance.ProbesDataCleanup();
             LightDataCleanup();
             DeferredLightingPassDispose();
             FinalBlitPassDispose();

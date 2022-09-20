@@ -15,10 +15,12 @@ namespace HPipeline
         }
 
         private Material _deferredLightingMaterial;
+        private Texture _integratedBRDFTexture;
 
         private void DeferredLightingPassInit()
         {
             _deferredLightingMaterial = new Material(Shader.Find("Hidden/DeferredLighting"));
+            _integratedBRDFTexture = Resources.Load<Texture>("IntegratedBRDF");
         }
 
         private void DeferredLightingPassExecute(RenderGraph renderGraph, GBuffer gBuffer, ClusterLightsCullResult clusterLightsCullResult, out TextureHandle colorBuffer)
@@ -50,8 +52,13 @@ namespace HPipeline
                     propertyBlock.SetTexture(ShaderIDs._GBuffer1, data.GBufferData.GBuffer1);
                     propertyBlock.SetTexture(ShaderIDs._GBuffer2, data.GBufferData.GBuffer2);
                     propertyBlock.SetTexture(ShaderIDs._BakedGI, data.GBufferData.BakedGI);
+                    //Cluster
                     propertyBlock.SetTexture(ShaderIDs._LightsCullTexture, data.ClusterLightsCullResult.LightsCullTexture);
                     propertyBlock.SetBuffer(ShaderIDs._LightIndexBuffer, data.ClusterLightsCullResult.LightIndexBuffer);
+                    //IBL
+                    propertyBlock.SetTexture(ShaderIDs._IntegratedBRDFTexture, _integratedBRDFTexture);
+                    //propertyBlock.SetTexture(ShaderIDs._ProbesTexture, IBL.instance.ProbesTexture);
+                    //propertyBlock.SetInt(ShaderIDs._ProbesCount, IBL.instance.ProbesCount);
 
                     context.cmd.DrawProcedural(Matrix4x4.identity, data.DeferredLightingMaterial, 0, MeshTopology.Triangles, 3, 1, propertyBlock);
                 });
@@ -61,6 +68,7 @@ namespace HPipeline
         private void DeferredLightingPassDispose()
         {
             Destroy(_deferredLightingMaterial);
+            //Destroy(_integratedBRDFTexture);
         }
     }
 }

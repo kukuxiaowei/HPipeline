@@ -8,7 +8,7 @@ namespace HPipeline
         //ShaderTagId
         public static readonly ShaderTagId GBuffer = new("GBuffer");
         
-        //Texture
+        //RenderTexture
         public static readonly int _DepthBuffer = Shader.PropertyToID("_DepthBuffer");
         public static readonly int _GBuffer0 = Shader.PropertyToID("_GBuffer0");
         public static readonly int _GBuffer1 = Shader.PropertyToID("_GBuffer1");
@@ -18,7 +18,6 @@ namespace HPipeline
 
         //CB
         public static readonly int _CameraData = Shader.PropertyToID("_CameraData");
-        public static readonly int _ScreenPixel = Shader.PropertyToID("_ScreenPixel");
         public static readonly int _BlitScaleOffset = Shader.PropertyToID("_BlitScaleOffset");
 
         //Light
@@ -37,5 +36,10 @@ namespace HPipeline
         //Matrix
         public static readonly int _ScreenToWorldMatrix = Shader.PropertyToID("_ScreenToWorldMatrix");
         public static readonly int _WorldToViewMatrix = Shader.PropertyToID("_WorldToViewMatrix");
+        
+        //IBL
+        public static readonly int _IntegratedBRDFTexture = Shader.PropertyToID("_IntegratedBRDFTexture");
+        public static readonly int _ProbesCount = Shader.PropertyToID("_ProbesCount");
+        public static readonly int _ProbesTexture = Shader.PropertyToID("_ProbesTexture");
     }
 }

@@ -1,6 +1,5 @@
 ﻿using UnityEngine;
 using UnityEngine.Rendering;
-using System.Collections.Generic;
 
 namespace HPipeline
 {
@@ -12,21 +11,21 @@ namespace HPipeline
             public Vector4 Color;
         }
 
-        const int MaxLightCount = 256;
+        const int maxLightCount = 256;
 
-        List<LightData> _lightDataArray;
+        int _lightCount = 0;
+        readonly LightData[] _lightDataArray = new LightData[maxLightCount];
         ComputeBuffer _lightDataBuffer;
 
         void LightDataInit()
         {
-            _lightDataArray = new List<LightData>();
-            _lightDataBuffer = new ComputeBuffer(MaxLightCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(LightData)));
+            _lightDataBuffer = new ComputeBuffer(maxLightCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(LightData)));
         }
 
         void LightDataSetup(CommandBuffer cmd, CullingResults cullingResults, out ComputeBuffer lightDataBuffer)
         {
-            _lightDataArray.Clear();
-            for (int i = 0; i < cullingResults.visibleLights.Length; i++)
+            _lightCount = Mathf.Min(cullingResults.visibleLights.Length, maxLightCount);
+            for (int i = 0; i < _lightCount; i++)
             {
                 var visibleLight = cullingResults.visibleLights[i];
                 if(visibleLight.lightType == LightType.Directional)
@@ -36,20 +35,19 @@ namespace HPipeline
                 }
                 else if(visibleLight.lightType == LightType.Point)
                 {
-                    var lightData = new LightData()
+                    _lightDataArray[i] = new LightData()
                     {
                         Position = visibleLight.localToWorldMatrix.GetColumn(3),
                         Color = visibleLight.finalColor
                     };
-                    lightData.Position.w = visibleLight.range;
-                    _lightDataArray.Add(lightData);
+                    _lightDataArray[i].Position.w = visibleLight.range;
                 }
             }
-            _lightDataBuffer.SetData(_lightDataArray);
+            _lightDataBuffer.SetData(_lightDataArray, 0, 0, _lightCount);
             lightDataBuffer = _lightDataBuffer;
 
             cmd.SetGlobalBuffer(ShaderIDs._LightData, _lightDataBuffer);
-            cmd.SetGlobalFloat(ShaderIDs._LightCount, _lightDataArray.Count);
+            cmd.SetGlobalFloat(ShaderIDs._LightCount, _lightCount);
         }
 
         void LightDataCleanup()

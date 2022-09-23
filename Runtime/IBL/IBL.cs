@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
 namespace HPipeline
@@ -34,6 +35,8 @@ namespace HPipeline
         public ComputeBuffer ProbesDataBuffer;
         public readonly Texture2DArray ProbesTexture = new Texture2DArray(resolution, resolution, maxProbeCount, TextureFormat.RGBAHalf, true, false);
         
+        Material _blitCubemapMaterial;
+
         public void ProbesDataInit()
         {
             ProbesDataBuffer = new ComputeBuffer(maxProbeCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(ProbeData)));
@@ -78,6 +81,19 @@ namespace HPipeline
             }
             
             ProbesDataBuffer.SetData(_probesDataArray, 0, 0, ProbesCount);
+        }
+        
+        void ConvertTexture(CommandBuffer cmd, Texture source, RenderTexture target)
+        {
+            var propertyBlock = new MaterialPropertyBlock();
+            propertyBlock.SetTexture(ShaderIDs._Source, source);
+            propertyBlock.SetFloat(ShaderIDs._LOD, 0.0f);
+            for (int f = 0; f < 6; ++f)
+            {
+                propertyBlock.SetInt(ShaderIDs._Face, f);
+                cmd.SetRenderTarget(target, 0, (CubemapFace)f);
+                cmd.DrawProcedural(Matrix4x4.identity, _blitCubemapMaterial, 0, MeshTopology.Triangles, 3, 1, propertyBlock);
+            }
         }
         
         public void ProbesDataCleanup()

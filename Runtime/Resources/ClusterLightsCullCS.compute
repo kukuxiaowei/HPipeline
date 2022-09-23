@@ -9,6 +9,12 @@ struct LightData
     float4 color;
 };
 
+struct AABB
+{
+    float3 Center;
+    float3 Extent;
+};
+
 float4x4 _WorldToViewMatrix;
 
 float _LightCount;
@@ -25,45 +31,65 @@ groupshared uint gs_PointLightCount[16];
 groupshared uint gs_PointLightList[16][32];
 
 //https://lxjk.github.io/2018/03/25/Improve-Tile-based-Light-Culling-with-Spherical-sliced-Cone.html
-bool SphericalSlicedConeTest(float3 lightPosVS, float lightRadius, float3 tileCenterVec, float tileCos, float tileSin)
+bool TileBasedLightConeTest(float3 lightPosVS, float lightRadius, float3 tileCenterVec, float tileCos, float tileSin)
 {
     float lightDist = length(lightPosVS);
     float3 lightVec = lightPosVS / lightDist;
-    float lightSin = saturate(lightRadius / lightDist);
-    float lightCos = sqrt(1.0 - lightSin * lightSin);
+    float lightConeSin = saturate(lightRadius / lightDist);
+    float lightConeCos = sqrt(1.0 - lightConeSin * lightConeSin);
 
     float lightTileCos = dot(lightVec, tileCenterVec);
     float lightTileSin = sqrt(1 - lightTileCos * lightTileCos);
     //sum angle = light cone half angle + tile cone half angle
-    float sumCos = (lightRadius > lightDist) ? -1.0 : (tileCos * lightCos - tileSin * lightSin);
+    float sumCos = (lightRadius > lightDist) ? -1.0 : (tileCos * lightConeCos - tileSin * lightConeSin);
 
     return lightTileCos >= sumCos;
 }
 
-bool AABBTest(float3 sides[4], float tileZMin, float tileZMax, float3 lightPosVS, float lightRadius2)
+bool AABBSphereTest(AABB aabb, float3 sphereCenter, float sphereRadius2)
 {
-    float3 AABB[8];
-    AABB[0] = sides[0] * tileZMin;
-    AABB[1] = sides[1] * tileZMin;
-    AABB[2] = sides[2] * tileZMin;
-    AABB[3] = sides[3] * tileZMin;
-    AABB[4] = sides[0] * tileZMax;
-    AABB[5] = sides[1] * tileZMax;
-    AABB[6] = sides[2] * tileZMax;
-    AABB[7] = sides[3] * tileZMax;
-    float3 AABBMin = AABB[0];
-    float3 AABBMax = AABB[0];
+    /*float3 distanceFromAABB = max(max(sphereCenter - AABBMax, AABBMin - sphereCenter), half3(0.0, 0.0, 0.0));
+    return sphereRadius2 >= distanceFromAABB * distanceFromAABB;*/
+    float3 sphereInAABB = max(abs(sphereCenter - aabb.Center) - aabb.Extent, 0.0);
+    return sphereRadius2 >= dot(sphereInAABB, sphereInAABB);
+}
+
+//https://bartwronski.com/2017/04/13/cull-that-cone/
+bool ConeSphereTest(float3 coneOrigin, float3 coneForward, float coneRadius, float tanAngle, float3 sphereCenter, float sphereRadius)
+{
+    float3 V = sphereCenter.xyz - coneOrigin;
+    float  VlenSq = dot(V, V);
+    float  V1len  = dot(V, coneForward);
+    float  distanceClosestPoint = sqrt(VlenSq - V1len*V1len) - V1len * tanAngle;
+ 
+    bool angleCull = distanceClosestPoint > sphereRadius;
+    bool frontCull = V1len >  sphereRadius + coneRadius;
+    bool backCull  = V1len < -sphereRadius;
+    return !(angleCull || frontCull || backCull);
+}
+
+AABB CalcClusterAABB(float3 sides[4], float tileZMin, float tileZMax)
+{
+    float3 p[8];
+    p[0] = sides[0] * tileZMin;
+    p[1] = sides[1] * tileZMin;
+    p[2] = sides[2] * tileZMin;
+    p[3] = sides[3] * tileZMin;
+    p[4] = sides[0] * tileZMax;
+    p[5] = sides[1] * tileZMax;
+    p[6] = sides[2] * tileZMax;
+    p[7] = sides[3] * tileZMax;
+    float3 AABBMin = p[0];
+    float3 AABBMax = p[0];
     for (int i = 1; i < 8; ++i)
     {
-        AABBMin = min(AABBMin, AABB[i]);
-        AABBMax = max(AABBMax, AABB[i]);
+        AABBMin = min(AABBMin, p[i]);
+        AABBMax = max(AABBMax, p[i]);
     }
-    /*float3 distanceFromAABB = max(max(lightPosVS - AABBMax, AABBMin - lightPosVS), half3(0.0, 0.0, 0.0));
-    return lightRadius2 >= distanceFromAABB * distanceFromAABB;*/
-    float3 AABBCenter = (AABBMax + AABBMin) * 0.5;
-    float3 AABBExtent = (AABBMax - AABBMin) * 0.5;
-    float3 lightPosInAABB = max(abs(lightPosVS - AABBCenter) - AABBExtent, 0.0);
-    return lightRadius2 >= dot(lightPosInAABB, lightPosInAABB);
+    AABB aabb;
+    aabb.Center = (AABBMax + AABBMin) * 0.5;
+    aabb.Extent = (AABBMax - AABBMin) * 0.5;
+    return aabb;
 }
 
 [numthreads(16,16,1)]
@@ -108,7 +134,7 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
         float lightZMin = lightPosVS.z - lightRadius;
         float lightZMax = lightPosVS.z + lightRadius;
 
-        if (SphericalSlicedConeTest(lightPosVS, lightRadius, tileCenterVec, tileCos, tileSin) &&
+        if (TileBasedLightConeTest(lightPosVS, lightRadius, tileCenterVec, tileCos, tileSin) &&
             lightZMin <= _CameraData.y &&
             lightZMax >= _CameraData.x)
         {
@@ -124,7 +150,8 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
             for (uint slice = sliceF; slice <= sliceB; ++slice)
             {
                 float tileZMax = (slice + 1) * _ClusterSizeData.z;
-                if (AABBTest(sides, tileZMin, tileZMax, lightPosVS, lightRadius2))
+                AABB aabb = CalcClusterAABB(sides, tileZMin, tileZMax);
+                if (AABBSphereTest(aabb, lightPosVS, lightRadius2))
                 {
                     uint oriCount;
                     InterlockedAdd(gs_PointLightCount[slice], 1, oriCount);

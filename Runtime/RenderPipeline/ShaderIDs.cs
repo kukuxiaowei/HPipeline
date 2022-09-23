@@ -41,5 +41,7 @@ namespace HPipeline
         public static readonly int _IntegratedBRDFTexture = Shader.PropertyToID("_IntegratedBRDFTexture");
         public static readonly int _ProbesCount = Shader.PropertyToID("_ProbesCount");
         public static readonly int _ProbesTexture = Shader.PropertyToID("_ProbesTexture");
+        public static readonly int _LOD = Shader.PropertyToID("_LOD");
+        public static readonly int _Face = Shader.PropertyToID("_Face");
     }
 }

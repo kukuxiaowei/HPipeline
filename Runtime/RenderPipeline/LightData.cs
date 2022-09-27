@@ -8,6 +8,7 @@ namespace HPipeline
         struct LightData
         {
             public Vector4 Position;
+            public Vector4 SpotDirection;
             public Vector4 Color;
         }
 
@@ -24,8 +25,8 @@ namespace HPipeline
 
         void LightDataSetup(CommandBuffer cmd, CullingResults cullingResults, out ComputeBuffer lightDataBuffer)
         {
-            _lightCount = Mathf.Min(cullingResults.visibleLights.Length, maxLightCount);
-            for (int i = 0; i < _lightCount; i++)
+            _lightCount = 0;
+            for (int i = 0; i < cullingResults.visibleLights.Length; i++)
             {
                 var visibleLight = cullingResults.visibleLights[i];
                 if(visibleLight.lightType == LightType.Directional)
@@ -35,14 +36,35 @@ namespace HPipeline
                 }
                 else if(visibleLight.lightType == LightType.Point)
                 {
-                    _lightDataArray[i] = new LightData()
+                    _lightDataArray[_lightCount] = new LightData()
                     {
                         Position = visibleLight.localToWorldMatrix.GetColumn(3),
+                        SpotDirection = Vector4.zero,
                         Color = visibleLight.finalColor
                     };
-                    _lightDataArray[i].Position.w = visibleLight.range;
+                    _lightDataArray[_lightCount].Position.w = visibleLight.range;
+                    
+                    ++_lightCount;
+                }
+                else if(visibleLight.lightType == LightType.Spot)
+                {
+                    _lightDataArray[_lightCount] = new LightData()
+                    {
+                        Position = visibleLight.localToWorldMatrix.GetColumn(3),
+                        SpotDirection = visibleLight.localToWorldMatrix.GetColumn(2),
+                        Color = visibleLight.finalColor
+                    };
+                    _lightDataArray[_lightCount].Position.w = visibleLight.range;
+
+                    float cosAngle = Mathf.Cos(Mathf.Deg2Rad * visibleLight.spotAngle * 0.5f);
+                    float cosInnerAngle = Mathf.Cos((2.0f * Mathf.Atan(Mathf.Tan(visibleLight.spotAngle * 0.5f * Mathf.Deg2Rad) * (64.0f - 18.0f) / 64.0f)) * 0.5f);//URP
+                    _lightDataArray[_lightCount].SpotDirection.w = cosAngle;
+                    _lightDataArray[_lightCount].Color.w = cosInnerAngle;
+                    
+                    ++_lightCount;
                 }
             }
+            _lightCount = Mathf.Min(_lightCount, maxLightCount);
             _lightDataBuffer.SetData(_lightDataArray, 0, 0, _lightCount);
             lightDataBuffer = _lightDataBuffer;
 

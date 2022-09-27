@@ -22,6 +22,7 @@ Shader "Hidden/DeferredLighting"
             struct LightData
             {
                 float4 position;
+                float4 spotDirection;
                 float4 color;
             };
 
@@ -75,6 +76,15 @@ Shader "Hidden/DeferredLighting"
                 return (Lambert(diffuse) + specular) * NdotL;
             }
 
+            float DistanceAttenuation(float distanceSqr, float lightRange)
+            {
+                //atten = smooth/x^2, smooth = saturate(1-(x/r)^4)^2
+                float lightDisRcp = rsqrt(distanceSqr);
+                float attenSmooth = saturate(1.0 - Pow4(rcp(lightDisRcp * lightRange)));
+                float atten = attenSmooth * lightDisRcp;
+                return atten * atten;
+            }
+
             float4 frag (v2f input) : SV_Target
             {
                 uint2 posSS = input.vertex.xy;
@@ -111,7 +121,7 @@ Shader "Hidden/DeferredLighting"
                 float3 brdf = BRDF(diffuse, specular, roughness, normalWS, _MainLightPosition, view, multiScatterEnergy);
                 col += brdf * _MainLightColor.rgb + emission;
 
-                //PointLighting
+                //PunctualLighting
                 uint z = (uint)(LinearEyeDepth(depth) * _ClusterSizeData.w);
                 z = clamp(z, 0, 15);
                 uint2 xy = posSS / ClusterRes;
@@ -121,15 +131,22 @@ Shader "Hidden/DeferredLighting"
                     uint lightIdx = _LightIndexBuffer[lightStartIdxAndCount.x + i];
                     LightData light = _LightData[lightIdx];
 
-                    //atten = smooth/x^2, smooth = saturate(1-(x/r)^4)^2
                     float3 lightDir = light.position.xyz - posWS.xyz;
                     float lightDisSqr = dot(lightDir, lightDir);
-                    float lightDisRcp = rsqrt(lightDisSqr);
-                    lightDir = lightDir * lightDisRcp;
-                    float lightRange = light.position.w;
-                    float attenSmooth = saturate(1.0 - Pow4(rcp(lightDisRcp * lightRange)));
-                    float atten = attenSmooth * lightDisRcp;
-                    atten = atten * atten;
+                    lightDir = lightDir * rsqrt(lightDisSqr);
+
+                    float atten = DistanceAttenuation(lightDisSqr, light.position.w);
+
+                    //SpotLight
+                    float cosAngle = light.spotDirection.w;
+                    if(cosAngle > 0.0)
+                    {
+                        float cosInnerAngle = light.color.w;
+                        float angleAtten = saturate((dot(-light.spotDirection.xyz, lightDir) - cosAngle) / max(cosInnerAngle - cosAngle, 0.001));
+                        angleAtten = angleAtten * angleAtten;
+                        atten *= angleAtten;
+                    }
+                    
                     brdf = BRDF(diffuse, specular, roughness, normalWS, lightDir, view, multiScatterEnergy);
                     col += brdf * light.color.rgb * atten;
                 }

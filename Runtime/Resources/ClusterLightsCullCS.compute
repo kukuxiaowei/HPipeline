@@ -6,6 +6,7 @@
 struct LightData
 {
     float4 position;
+    float4 spotDirection;
     float4 color;
 };
 
@@ -27,8 +28,8 @@ RWStructuredBuffer<uint> _LightIndexBuffer;
 RWStructuredBuffer<uint> _LightStartOffsetCounter;
 StructuredBuffer<LightData> _LightData;
 
-groupshared uint gs_PointLightCount[16];
-groupshared uint gs_PointLightList[16][32];
+groupshared uint gs_PunctualLightCount[16];
+groupshared uint gs_PunctualLightList[16][32];
 
 //https://lxjk.github.io/2018/03/25/Improve-Tile-based-Light-Culling-with-Spherical-sliced-Cone.html
 bool TileBasedLightConeTest(float3 lightPosVS, float lightRadius, float3 tileCenterVec, float tileCos, float tileSin)
@@ -54,6 +55,25 @@ bool AABBSphereTest(AABB aabb, float3 sphereCenter, float sphereRadius2)
     return sphereRadius2 >= dot(sphereInAABB, sphereInAABB);
 }
 
+float4 ConeToSphere(float3 coneOrigin, float3 coneForward, float coneRadius, float cosAngle)
+{
+    float4 boundingSphere;
+    if(cosAngle > 0.07071)//halfAngle<PI/4
+    {
+        float sphereRadius = coneRadius * 0.5 / cosAngle;
+        boundingSphere.xyz = coneOrigin + sphereRadius * coneForward;
+        boundingSphere.w = sphereRadius;
+    }
+    else
+    {
+        float sinAngle = sqrt(1 - cosAngle * cosAngle);
+        boundingSphere.xyz = coneOrigin + coneRadius * cosAngle * coneForward;
+        boundingSphere.w = coneRadius * sinAngle;
+    }
+ 
+    return boundingSphere;
+}
+
 //https://bartwronski.com/2017/04/13/cull-that-cone/
 bool ConeSphereTest(float3 coneOrigin, float3 coneForward, float coneRadius, float tanAngle, float3 sphereCenter, float sphereRadius)
 {
@@ -66,6 +86,13 @@ bool ConeSphereTest(float3 coneOrigin, float3 coneForward, float coneRadius, flo
     bool frontCull = V1len >  sphereRadius + coneRadius;
     bool backCull  = V1len < -sphereRadius;
     return !(angleCull || frontCull || backCull);
+}
+
+bool ConePlaneTest(float3 coneOrigin, float3 coneForward, float coneRadius, float tanAngle, float4 plane)
+{
+    float3 V = cross(cross(plane.xyz, coneForward), coneForward);
+    float3 closetPoint = coneOrigin + coneForward * coneRadius + V * (coneRadius * tanAngle);
+    return dot(float4(closetPoint, 1.0), plane) >= 0 || dot(float4(closetPoint, 1.0), plane) >= 0;
 }
 
 AABB CalcClusterAABB(float3 sides[4], float tileZMin, float tileZMax)
@@ -98,7 +125,7 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     uint groupIdx = groupThreadID.y * 16 + groupThreadID.x;
     if (groupIdx < 16)
     {
-        gs_PointLightCount[groupIdx] = 0;
+        gs_PunctualLightCount[groupIdx] = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -129,6 +156,15 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
         float3 lightPosWS = light.position.xyz;
         float lightRadius = light.position.w;
 
+        //SpotLight
+        float4 spotDirection = light.spotDirection;
+        if(spotDirection.w > 0.0)
+        {
+            float4 boundingSphere = ConeToSphere(lightPosWS, spotDirection.xyz, lightRadius, spotDirection.w);
+            lightPosWS = boundingSphere.xyz;
+            lightRadius = boundingSphere.w;
+        }
+
         float3 lightPosVS = mul(_WorldToViewMatrix, float4(lightPosWS, 1.0)).xyz;
         lightPosVS.z = -(lightPosVS.z);
         float lightZMin = lightPosVS.z - lightRadius;
@@ -154,10 +190,10 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
                 if (AABBSphereTest(aabb, lightPosVS, lightRadius2))
                 {
                     uint oriCount;
-                    InterlockedAdd(gs_PointLightCount[slice], 1, oriCount);
+                    InterlockedAdd(gs_PunctualLightCount[slice], 1, oriCount);
                     if (oriCount < ClusterMaxLightCount)
                     {
-                        gs_PointLightList[slice][oriCount] = lightIdx;
+                        gs_PunctualLightList[slice][oriCount] = lightIdx;
                     }
                 }
 
@@ -168,7 +204,7 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     GroupMemoryBarrierWithGroupSync();
 
     uint slice = groupIdx;
-    uint lightCountCulled = gs_PointLightCount[slice];
+    uint lightCountCulled = gs_PunctualLightCount[slice];
     lightCountCulled = min(lightCountCulled, ClusterMaxLightCount);
     
     uint curStartOffset;
@@ -182,7 +218,7 @@ void ClusterLightsCull(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_Grou
     {
         for (uint i = 0; i < lightCountCulled; ++i)
         {
-            uint lightIdx = gs_PointLightList[slice][i];
+            uint lightIdx = gs_PunctualLightList[slice][i];
             _LightIndexBuffer[curStartOffset + i] = lightIdx;
         }
 

@@ -3,79 +3,123 @@ using UnityEngine.Rendering;
 
 namespace HPipeline
 {
-    public partial class RenderPipeline
+    [GenerateHLSL]
+    enum LightCategory
     {
-        struct LightData
+        Punctual,
+        Env,
+        Count
+    }
+
+    [GenerateHLSL(PackingRules.Exact, false)]
+    struct DirectionalLightData
+    {
+        public Vector4 positionWS;
+        public Vector4 color;
+    }
+
+    [GenerateHLSL(PackingRules.Exact, false)]
+    struct PunctualLightData
+    {
+        public Vector3 positionWS;
+        public float range;
+
+        public Vector3 color;
+        public float spotAngleScale;
+
+        public Vector3 forward;
+        public float spotAngleOffset;
+    }
+
+    [GenerateHLSL(PackingRules.Exact, false)]
+    struct EnvLightData
+    {
+        public int envIndex;
+        public Vector3 positionWS;
+        public float range;
+        public float blendDistance;
+        public Vector2 padding;
+    }
+
+    [GenerateHLSL(PackingRules.Exact, false)]
+    struct LightBound
+    {
+        public Vector3 position;
+        public float range;
+
+        public Vector3 forward;
+        public float spotCosAngle;
+
+        public float spotSinAngle;
+        public LightCategory category;
+        public uint categoryOffset;
+        public uint padding;
+
+        public LightBound(PunctualLightData punctualLight, uint categoryOffset = 0)
         {
-            public Vector4 Position;
-            public Vector4 SpotDirection;
-            public Vector4 Color;
+            this.position = punctualLight.positionWS;
+            this.range = punctualLight.range;
+            this.forward = punctualLight.forward;
+            this.spotCosAngle = 1.0f;
+            this.spotSinAngle = 0.0f;
+            this.category = LightCategory.Punctual;
+            this.categoryOffset = categoryOffset;
+            this.padding = 0;
         }
 
-        const int maxLightCount = 256;
-
-        int _lightCount = 0;
-        readonly LightData[] _lightDataArray = new LightData[maxLightCount];
-        ComputeBuffer _lightDataBuffer;
-
-        void LightDataInit()
+        public LightBound(EnvLightData envLight, uint categoryOffset)
         {
-            _lightDataBuffer = new ComputeBuffer(maxLightCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(LightData)));
+            this.position = envLight.positionWS;
+            this.range = envLight.range;
+            this.forward = Vector3.zero;
+            this.spotCosAngle = 1.0f;
+            this.spotSinAngle = 0.0f;
+            this.category = LightCategory.Env;
+            this.categoryOffset = categoryOffset;
+            this.padding = 0;
+        }
+    }
+
+    internal class LightData
+    {
+        public GraphicsBuffer directionalLightData { get; private set; }
+        public GraphicsBuffer punctualLightData { get; private set; }
+        public GraphicsBuffer envLightData { get; private set; }
+
+        public int directionalLightCount;
+        public int punctualLightCount;
+        public int envLightCount;
+
+        public void Initialize(int directionalCount, int punctualCount, int envLightCount)
+        {
+            directionalLightData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, directionalCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(DirectionalLightData)));
+            punctualLightData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, punctualCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(PunctualLightData)));
+            envLightData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, envLightCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(EnvLightData)));
         }
 
-        void LightDataSetup(CommandBuffer cmd, CullingResults cullingResults, out ComputeBuffer lightDataBuffer)
+        public void Cleanup()
         {
-            _lightCount = 0;
-            for (int i = 0; i < cullingResults.visibleLights.Length; i++)
-            {
-                var visibleLight = cullingResults.visibleLights[i];
-                if(visibleLight.lightType == LightType.Directional)
-                {
-                    cmd.SetGlobalVector(ShaderIDs._MainLightPosition, -visibleLight.localToWorldMatrix.GetColumn(2));
-                    cmd.SetGlobalVector(ShaderIDs._MainLightColor, visibleLight.finalColor);
-                }
-                else if(visibleLight.lightType == LightType.Point)
-                {
-                    _lightDataArray[_lightCount] = new LightData()
-                    {
-                        Position = visibleLight.localToWorldMatrix.GetColumn(3),
-                        SpotDirection = Vector4.zero,
-                        Color = visibleLight.finalColor
-                    };
-                    _lightDataArray[_lightCount].Position.w = visibleLight.range;
-                    
-                    ++_lightCount;
-                }
-                else if(visibleLight.lightType == LightType.Spot)
-                {
-                    _lightDataArray[_lightCount] = new LightData()
-                    {
-                        Position = visibleLight.localToWorldMatrix.GetColumn(3),
-                        SpotDirection = visibleLight.localToWorldMatrix.GetColumn(2),
-                        Color = visibleLight.finalColor
-                    };
-                    _lightDataArray[_lightCount].Position.w = visibleLight.range;
-
-                    float cosAngle = Mathf.Cos(Mathf.Deg2Rad * visibleLight.spotAngle * 0.5f);
-                    float cosInnerAngle = Mathf.Cos((2.0f * Mathf.Atan(Mathf.Tan(visibleLight.spotAngle * 0.5f * Mathf.Deg2Rad) * (64.0f - 18.0f) / 64.0f)) * 0.5f);//URP
-                    _lightDataArray[_lightCount].SpotDirection.w = cosAngle;
-                    _lightDataArray[_lightCount].Color.w = cosInnerAngle;
-                    
-                    ++_lightCount;
-                }
-            }
-            _lightCount = Mathf.Min(_lightCount, maxLightCount);
-            _lightDataBuffer.SetData(_lightDataArray, 0, 0, _lightCount);
-            lightDataBuffer = _lightDataBuffer;
-
-            cmd.SetGlobalBuffer(ShaderIDs._LightData, _lightDataBuffer);
-            cmd.SetGlobalFloat(ShaderIDs._LightCount, _lightCount);
+            CoreUtils.SafeRelease(directionalLightData);
+            CoreUtils.SafeRelease(punctualLightData);
+            CoreUtils.SafeRelease(envLightData);
         }
 
-        void LightDataCleanup()
+        public void SetDirectionalLightData(DynamicArray<DirectionalLightData> directionalLights)
         {
-            if (_lightDataBuffer != null)
-                _lightDataBuffer.Release();
+            this.directionalLightCount = directionalLights.size;
+            this.directionalLightData.SetData(directionalLights, 0, 0, this.directionalLightCount);
+        }
+
+        public void SetPunctualLightData(DynamicArray<PunctualLightData> punctualLights)
+        {
+            this.punctualLightCount = punctualLights.size;
+            this.punctualLightData.SetData(punctualLights, 0, 0, this.punctualLightCount);
+        }
+
+        public void SetEnvLightData(DynamicArray<EnvLightData> envLights)
+        {
+            this.envLightCount = envLights.size;
+            this.envLightData.SetData(envLights, 0, 0, this.envLightCount);
         }
     }
 }

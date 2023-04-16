@@ -8,22 +8,40 @@ Shader "Hidden/Blit"
         Pass
         {
             Name "Blit"
-            CGPROGRAM
-            #pragma vertex vertFullScreen
+
+			HLSLPROGRAM
+
+            #pragma vertex vert
             #pragma fragment frag
 
-            #include "Common.cginc"
+			#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
 
-            sampler2D _Source;
-            float4 _BlitScaleOffset;
+            sampler2D _BlitTexture;
+            float4 _BlitScaleBias;
 
-            fixed4 frag (v2f i) : SV_Target
+			struct v2f
+			{
+				float2 uv : TEXCOORD0;
+				float4 vertex : SV_POSITION;
+			};
+
+			v2f vert(uint vertexID : SV_VertexID)
+			{
+				v2f o;
+
+				float4 pos = GetFullScreenTriangleVertexPosition(vertexID);
+				float2 uv = GetFullScreenTriangleTexCoord(vertexID);
+
+				o.vertex = pos;
+				o.uv = uv * _BlitScaleBias.xy + _BlitScaleBias.zw;
+				return o;
+			}
+
+			float4 frag (v2f i) : SV_Target
             {
-                fixed4 col = tex2D(_Source, i.uv * _BlitScaleOffset.xy + _BlitScaleOffset.zw);
-
-                return col;
+                return tex2D(_BlitTexture, i.uv);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

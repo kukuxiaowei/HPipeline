@@ -1,56 +1,68 @@
 ﻿using UnityEngine;
-using UnityEngine.Experimental.Rendering.RenderGraphModule;
 using UnityEngine.Rendering;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace HPipeline
 {
-    public partial class RenderPipeline
+    public class FinalBlitPass
     {
-        private class FinalBlitPassData
+        Material m_BlitMaterial;
+        MaterialPropertyBlock m_PropertyBlock = new MaterialPropertyBlock();
+
+        public FinalBlitPass(Material blitMaterial)
         {
-            public TextureHandle Source;
-            public TextureHandle Destination;
-            public Material BlitMaterial;
+            m_BlitMaterial = blitMaterial;
         }
 
-        private Material _blitMaterial;
-
-        private void FinalBlitPassInit()
+        void ExecutePass(RasterCommandBuffer cmd, FinalBlitPassData data, RTHandle source, ref RenderingData renderingData)
         {
-            _blitMaterial = new Material(Shader.Find("Hidden/Blit"));
+            var camera = renderingData.camera;
+            bool isRenderToBackBufferTarget = camera.cameraType != CameraType.SceneView;
+            Vector2 viewportScale = source.useScaling ? new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y) : Vector2.one;
+
+            // We y-flip if
+            // 1) we are blitting from render texture to back buffer(UV starts at bottom) and
+            // 2) renderTexture starts UV at top
+            bool yflip = isRenderToBackBufferTarget && camera.targetTexture == null && SystemInfo.graphicsUVStartsAtTop;
+            Vector4 scaleBias = yflip ? new Vector4(viewportScale.x, -viewportScale.y, 0, viewportScale.y) : new Vector4(viewportScale.x, viewportScale.y, 0, 0);
+            if (isRenderToBackBufferTarget)
+                cmd.SetViewport(camera.pixelRect);
+
+            var shaderPass = 0;// source.rt?.filterMode == FilterMode.Bilinear ? k_FinalBlitBilinearSamplerShaderPass : k_FinalBlitPointSamplerShaderPass;
+
+            m_PropertyBlock.SetVector(ShaderPropertyId.blitScaleBias, scaleBias);
+            m_PropertyBlock.SetTexture(ShaderPropertyId.blitTexture, source);
+            cmd.DrawProcedural(Matrix4x4.identity, data.blitMaterial, shaderPass, MeshTopology.Triangles, 3, 1, m_PropertyBlock);
         }
 
-        private void FinalBlitPassExecute(RenderGraph renderGraph, Camera camera, TextureHandle source, TextureHandle destination)
+        class FinalBlitPassData
         {
-            using (var builder = renderGraph.AddRenderPass<FinalBlitPassData>("FinalBlit Pass", out var passData))
+            internal TextureHandle source;
+            internal TextureHandle destination;
+            internal Material blitMaterial;
+            internal RenderingData renderingData;
+        }
+
+        internal void Render(RenderGraph renderGraph, ref RenderingData renderingData, TextureHandle src, TextureHandle dest)
+        {
+            using (var builder = renderGraph.AddRasterRenderPass<FinalBlitPassData>("Final Blit Pass", out var passData))
             {
-                passData.Source = builder.ReadTexture(source);
-                passData.Destination = builder.UseColorBuffer(destination, 0);
-                passData.BlitMaterial = _blitMaterial;
+                passData.renderingData = renderingData;
+                passData.blitMaterial = m_BlitMaterial;
 
-                builder.SetRenderFunc((FinalBlitPassData data, RenderGraphContext context) =>
+                passData.source = builder.UseTexture(src, IBaseRenderGraphBuilder.AccessFlags.Read);
+                passData.destination = builder.UseTextureFragment(dest, 0, IBaseRenderGraphBuilder.AccessFlags.Write);
+
+                builder.AllowGlobalStateModification(true);
+
+                builder.SetRenderFunc((FinalBlitPassData data, RasterGraphContext context) =>
                 {
-                    RTHandle sourceTexture = data.Source;
-                    var pixelRect = camera.pixelRect;
-                    var blitScaleOffset = new Vector4(pixelRect.width / sourceTexture.rt.width, pixelRect.height / sourceTexture.rt.height, 0, 0);
-                    if (camera.cameraType == CameraType.Game)
-                    {
-                        blitScaleOffset.w = blitScaleOffset.y;
-                        blitScaleOffset.y *= -1.0f;
-                    }
-                    
-                    var propertyBlock = context.renderGraphPool.GetTempMaterialPropertyBlock();
-                    propertyBlock.SetVector(ShaderIDs._BlitScaleOffset, blitScaleOffset);
-                    propertyBlock.SetTexture(ShaderIDs._Source, data.Source);
-                    
-                    context.cmd.DrawProcedural(Matrix4x4.identity, data.BlitMaterial, 0, MeshTopology.Triangles, 3, 1, propertyBlock);
+                    //CoreUtils.SetKeyword(context.cmd, ShaderKeywordStrings.LinearToSRGBConversion, data.requireSrgbConversion);
+
+                    ExecutePass(context.cmd, data, data.source, ref data.renderingData);
                 });
             }
-        }
-
-        private void FinalBlitPassDispose()
-        {
-            Destroy(_blitMaterial);
         }
     }
 }

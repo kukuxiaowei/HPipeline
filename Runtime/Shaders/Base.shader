@@ -20,11 +20,15 @@ Shader "HPipleline/Base"
             Tags { "LightMode"="GBuffer" }
             
             Name "Base"
-            CGPROGRAM
+
+			HLSLPROGRAM
+
             #pragma vertex vert
             #pragma fragment frag
 
-            #include "UnityCG.cginc"
+			#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+			#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
+			#include "Input.hlsl"
 
             #pragma multi_compile _ LIGHTMAP_ON
 
@@ -64,15 +68,15 @@ Shader "HPipleline/Base"
             v2f vert (appdata v)
             {
                 v2f o;
-                float3 posWS = mul(unity_ObjectToWorld, float4(v.vertex.xyz, 1));
-                float3 normalWS = UnityObjectToWorldNormal(v.normal);
-                float3 tangentWS = UnityObjectToWorldDir(v.tangent);
-                float tangentSign = v.tangent.w * unity_WorldTransformParams.w;
+                float3 posWS = TransformObjectToWorld(v.vertex.xyz);
+                float3 normalWS = TransformObjectToWorldNormal(v.normal);
+                float3 tangentWS = TransformObjectToWorldDir(v.tangent.xyz);
+                float tangentSign = v.tangent.w * GetOddNegativeScale();
                 float3 binormalWS = normalize(cross(normalWS, tangentWS) * tangentSign);
                 o.tbn0 = float4(tangentWS.x, binormalWS.x, normalWS.x, posWS.x);
                 o.tbn1 = float4(tangentWS.y, binormalWS.y, normalWS.y, posWS.y);
                 o.tbn2 = float4(tangentWS.z, binormalWS.z, normalWS.z, posWS.z);
-                o.vertex = UnityWorldToClipPos(posWS);
+                o.vertex = TransformWorldToHClip(posWS);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
 #if defined(LIGHTMAP_ON)
                 o.lightmapUV = v.uv1 * unity_LightmapST.xy + unity_LightmapST.zw;
@@ -86,7 +90,7 @@ Shader "HPipleline/Base"
                 out half4 gBuffer2 : SV_Target2,
                 out half3 bakedGI : SV_Target3)
             {
-                half3 albedo = tex2D(_MainTex, i.uv) * _Color.rgb;
+                half3 albedo = tex2D(_MainTex, i.uv).rgb * _Color.rgb;
                 float3 normalTS = UnpackNormal(tex2D(_BumpMap, i.uv));
                 half4 metallicSmoothness = tex2D(_MetallicGlossMap, i.uv);
                 half smoothness = metallicSmoothness.a * _Glossiness;
@@ -105,12 +109,13 @@ Shader "HPipleline/Base"
                 gBuffer1 = half4(diffuse, emission);
                 gBuffer2 = half4(specular, smoothness);
 #if defined(LIGHTMAP_ON)
-                bakedGI = DecodeLightmap(UNITY_SAMPLE_TEX2D(unity_Lightmap, i.lightmapUV));
+                // DecodeLightmap
+                bakedGI = SAMPLE_TEXTURE2D(unity_Lightmap, samplerunity_Lightmap, i.lightmapUV).rgb;
 #else
                 bakedGI = 0;
 #endif
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

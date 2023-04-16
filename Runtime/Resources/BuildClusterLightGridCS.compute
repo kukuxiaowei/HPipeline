@@ -1,0 +1,262 @@
+#pragma kernel BuildClusterLightGrid
+#pragma kernel ClearGlobalCounter
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/hpipeline/Runtime/Shaders/Common.hlsl"
+#include "Packages/hpipeline/Runtime/Shaders/Input.hlsl"
+
+#define THREADS CLUSTER_DEPTH
+
+int _BuildLightCount;
+float4 _ClipToViewParams;
+
+RWStructuredBuffer<uint> _ClusterPackingOffset;
+RWStructuredBuffer<uint> _ClusterLights;
+RWStructuredBuffer<uint> _GlobalLightGridCounter;
+StructuredBuffer<LightBound> _BuildLightDatas;
+
+//groupshared uint gs_ClusterLightGridCounter[THREADS * LIGHTCATEGORY_COUNT];
+//groupshared uint gs_ClusterLightGrid[THREADS * LIGHTCATEGORY_COUNT][CLUSTER_MAX_LIGHT];
+
+groupshared uint gs_TileLightGridCounter;
+groupshared uint gs_TileLightGrid[THREADS * CLUSTER_MAX_LIGHT];
+
+struct AABB
+{
+    float3 Center;
+    float3 Extent;
+};
+
+AABB CalcClusterAABB(float3 gridCornerDirs[4], float zMin, float zMax)
+{
+    float3 gridCorner[8];
+    gridCorner[0] = gridCornerDirs[0] * zMin;
+    gridCorner[1] = gridCornerDirs[1] * zMin;
+    gridCorner[2] = gridCornerDirs[2] * zMin;
+    gridCorner[3] = gridCornerDirs[3] * zMin;
+    gridCorner[4] = gridCornerDirs[0] * zMax;
+    gridCorner[5] = gridCornerDirs[1] * zMax;
+    gridCorner[6] = gridCornerDirs[2] * zMax;
+    gridCorner[7] = gridCornerDirs[3] * zMax;
+    float3 AABBMin = gridCorner[0];
+    float3 AABBMax = gridCorner[0];
+    for (int i = 1; i < 8; ++i)
+    {
+        AABBMin = min(AABBMin, gridCorner[i]);
+        AABBMax = max(AABBMax, gridCorner[i]);
+    }
+    AABB aabb;
+    aabb.Center = (AABBMax + AABBMin) * 0.5;
+    aabb.Extent = (AABBMax - AABBMin) * 0.5;
+    return aabb;
+}
+
+bool AABBSphereTest(AABB aabb, float3 sphereCenter, float sphereRadius2)
+{
+    float3 sphereInAABB = max(abs(sphereCenter - aabb.Center) - aabb.Extent, 0.0);
+    return sphereRadius2 >= dot(sphereInAABB, sphereInAABB);
+}
+
+// https://lxjk.github.io/2018/03/25/Improve-Tile-based-Light-Culling-with-Spherical-sliced-Cone.html
+bool TileBasedConeTest(float3 lightPosition, float lightRadius, float3 tileDir, float tileCosAngle, float tileSinAngle)
+{
+    float  lightDist    = length(lightPosition);
+    float3 lightConeDir = lightPosition / lightDist;
+    float  lightConeSin = saturate(lightRadius / lightDist);
+    float  lightConeCos = sqrt(1.0 - lightConeSin * lightConeSin);
+
+    float lightTileCos = dot(lightConeDir, tileDir);
+    float lightTileSin = sqrt(1 - lightTileCos * lightTileCos);
+    // sum angle = light cone half angle + tile cone half angle
+    float sumCos = (lightRadius > lightDist) ? -1.0 : (tileCosAngle * lightConeCos - tileSinAngle * lightConeSin);
+
+    return lightTileCos >= sumCos;
+}
+
+float4 ConeToSphere(float3 coneOrigin, float3 coneForward, float coneRadius, float coneCosAngle, float coneSinAngle)
+{
+    float4 boundingSphere;
+    if (coneCosAngle > 0.07071) // halfAngle<PI/4
+    {
+        float sphereRadius = coneRadius * 0.5 / coneCosAngle;
+        boundingSphere.xyz = coneOrigin + sphereRadius * coneForward;
+        boundingSphere.w = sphereRadius;
+    }
+    else
+    {
+        boundingSphere.xyz = coneOrigin + coneRadius * coneCosAngle * coneForward;
+        boundingSphere.w = coneRadius * coneSinAngle;
+    }
+ 
+    return boundingSphere;
+}
+
+// https://bartwronski.com/2017/04/13/cull-that-cone/
+bool ConeSphereTest(float3 coneOrigin, float3 coneForward, float coneRadius, float coneCosAngle, float coneSinAngle, float4 sphere)
+{
+    float3 V = sphere.xyz - coneOrigin;
+    float VlenSq = dot(V, V);
+    float V1len  = dot(V, coneForward);
+    float distanceClosestPoint = coneCosAngle * sqrt(VlenSq - V1len * V1len) - V1len * coneSinAngle;
+ 
+    bool angleCull = distanceClosestPoint > sphere.w;
+    bool frontCull = V1len > sphere.w + coneRadius;
+    bool backCull  = V1len < -sphere.w;
+    return !(angleCull || frontCull || backCull);
+}
+
+bool ConePlaneTest(float3 coneOrigin, float3 coneForward, float coneRadius, float coneCosAngle, float coneSinAngle, float4 plane)
+{
+    float3 V = cross(cross(plane.xyz, coneForward), coneForward);
+    float3 closetPoint = coneOrigin + coneForward * coneRadius * coneCosAngle + V * coneRadius * coneSinAngle;
+    return dot(float4(closetPoint, 1.0), plane) >= 0.0 || dot(float4(closetPoint, 1.0), plane) >= 0.0;
+}
+
+uint AllocateLightListMemory(uint length)
+{
+    uint offset = 0;
+    InterlockedAdd(_GlobalLightGridCounter[0], length, offset);
+    return offset;
+}
+
+[numthreads(1, 1, 1)]
+void ClearGlobalCounter()
+{
+    _GlobalLightGridCounter[0] = 0;
+}
+
+[numthreads(THREADS, 1, 1)]
+void BuildClusterLightGrid(uint3 groupID : SV_GroupID, uint threadID : SV_GroupIndex)
+{
+    if (threadID == 0)
+    {
+        gs_TileLightGridCounter = 0;
+    }
+    uint gs_ClusterLightGridCounter[LIGHTCATEGORY_COUNT];
+    uint gs_ClusterLightGrid[LIGHTCATEGORY_COUNT][CLUSTER_MAX_LIGHT];
+    for (int i = 0; i < LIGHTCATEGORY_COUNT; ++i)
+    {
+        //gs_ClusterLightGridCounter[threadID + i * THREADS] = 0;
+        gs_ClusterLightGridCounter[i] = 0;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Tile
+    float4 tileSS;
+    tileSS.xy = groupID.xy * CLUSTER_TILE_SIZE;
+    tileSS.zw = min(tileSS.xy + float2(CLUSTER_TILE_SIZE, CLUSTER_TILE_SIZE), _ScreenSize.xy);
+    float4 tileCS = tileSS * _ScreenSize.zwzw * 2.0 - 1.0;
+    float4 tileVS = tileCS * float4(_ClipToViewParams.x, _ClipToViewParams.y, _ClipToViewParams.x, _ClipToViewParams.y);
+    float3 tileCenterDir = normalize(float3(tileVS.xy + tileVS.zw, 1.0));
+    
+    float3 gridCornerDirs[4];
+    gridCornerDirs[0] = normalize(float3(tileVS.xy, 1.0));
+    gridCornerDirs[1] = normalize(float3(tileVS.xw, 1.0));
+    gridCornerDirs[2] = normalize(float3(tileVS.zy, 1.0));
+    gridCornerDirs[3] = normalize(float3(tileVS.zw, 1.0));
+
+    float tileCosMaxAngle = min(min(min(dot(tileCenterDir, gridCornerDirs[0])
+        , dot(tileCenterDir, gridCornerDirs[1]))
+        , dot(tileCenterDir, gridCornerDirs[2]))
+        , dot(tileCenterDir, gridCornerDirs[3]));
+    float tileSinMaxAngle = sqrt(1.0 - tileCosMaxAngle * tileCosMaxAngle);
+
+    for (int lightIdx = threadID; lightIdx < _BuildLightCount; lightIdx += THREADS)
+    {
+        LightBound light = _BuildLightDatas[lightIdx];
+        float3 lightPositionVS = light.position;
+        float lightRadius = light.range;
+
+        // SpotLight
+        if (light.spotSinAngle > 0.0)
+        {
+            float4 boundingSphere = ConeToSphere(lightPositionVS, light.forward, lightRadius, light.spotCosAngle, light.spotSinAngle);
+            lightPositionVS = boundingSphere.xyz;
+            lightRadius = boundingSphere.w;
+        }
+
+        if (TileBasedConeTest(lightPositionVS, lightRadius, tileCenterDir, tileCosMaxAngle, tileSinMaxAngle))
+        {
+            // Add to TileLightGrid
+            uint index;
+            InterlockedAdd(gs_TileLightGridCounter, 1, index);
+            if (index < THREADS * CLUSTER_MAX_LIGHT)
+            {
+                gs_TileLightGrid[index] = lightIdx;
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint tileLightGridCount = gs_TileLightGridCounter;
+    
+    // Cluster
+    uint slice = threadID;
+    uint sum = 0;
+    
+    float near = _ProjectionParams.y;
+    float far = _ProjectionParams.z;
+    for (uint l = 0; l < tileLightGridCount; l++)
+    {
+        float zMin = clamp(ClusterSliceToLinearDepth(slice), near, far);
+        float zMax = clamp(ClusterSliceToLinearDepth(slice + 1), near, far);
+
+        LightBound light = _BuildLightDatas[gs_TileLightGrid[l]];
+        float3 lightPositionVS = light.position;
+        float lightRadius = light.range;
+        
+        float lightZMin = lightPositionVS.z - lightRadius;
+        float lightZMax = lightPositionVS.z + lightRadius;
+        if (lightZMin <= zMax && lightZMax >= zMin)
+        {
+            AABB aabb = CalcClusterAABB(gridCornerDirs, zMin, zMax);
+            if (AABBSphereTest(aabb, lightPositionVS, lightRadius * lightRadius))
+            {
+                // SpotLight
+                bool spotlightTest = true;
+                if (light.spotSinAngle > 0.0)
+                {
+                    float4 boundingSphere = float4(aabb.Center, length(aabb.Extent));
+                    spotlightTest = ConeSphereTest(lightPositionVS, light.forward, lightRadius, light.spotCosAngle, light.spotSinAngle, boundingSphere);
+                }
+                    
+                if (spotlightTest)
+                {
+                    // Add to ClusterLightGrid
+                    sum++;
+                    
+                    uint index;
+                    //InterlockedAdd(gs_ClusterLightGridCounter[slice + light.category * THREADS], 1, index);
+                    index = gs_ClusterLightGridCounter[light.category];
+                    gs_ClusterLightGridCounter[light.category]++;
+                    if (sum < CLUSTER_MAX_LIGHT)
+                    {
+                        //gs_ClusterLightGrid[slice + light.category * THREADS][index] = gs_TileLightGrid[l] - light.categoryOffset;
+                        gs_ClusterLightGrid[light.category][index] = gs_TileLightGrid[l] - light.categoryOffset;
+                    }
+                }
+            }
+        }
+    }
+    //GroupMemoryBarrierWithGroupSync();
+
+    uint start = AllocateLightListMemory(sum);
+
+    uint offset = start;
+    for (uint category = 0; category < LIGHTCATEGORY_COUNT; category++)
+    {
+        //uint numLights = gs_ClusterLightGridCounter[slice + category * THREADS];
+        uint numLights = gs_ClusterLightGridCounter[category];
+        for (uint i = 0; i < numLights; i++)
+        {
+            //uint lightIdx = gs_ClusterLightGrid[slice + category * THREADS][i];
+            uint lightIdx = gs_ClusterLightGrid[category][i];
+            _ClusterLights[offset + i] = lightIdx;
+        }
+        
+        uint lightGridIndex = ClusterIndex(groupID.x, groupID.y, slice, category);
+        _ClusterPackingOffset[lightGridIndex] = PackClusterOffset(offset, numLights);
+        
+        offset += numLights;
+    }
+}

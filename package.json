@@ -1,0 +1,10 @@
+{
+  "name": "hpipeline",
+  "description": "HPipeline",
+  "version": "0.0.1",
+  "unity": "2023.1",
+  "displayName": "HPipeline",
+  "dependencies": {
+    "com.unity.render-pipelines.core": "15.0.4"
+  }
+}

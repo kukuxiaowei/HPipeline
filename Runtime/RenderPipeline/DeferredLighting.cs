@@ -1,74 +1,63 @@
 ﻿using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace HPipeline
 {
-    public partial class RenderPipeline
+    internal class DeferredLightingPass
     {
-        private class DeferredLightingPassData
+        Material m_DeferredLightingMaterial;
+
+        public DeferredLightingPass(Material deferredLightingMaterial)
         {
-            public GBuffer GBufferData;
-            public ClusterLightsCullResult ClusterLightsCullResult;
-            public TextureHandle ColorBuffer;
-            public Material DeferredLightingMaterial;
+            m_DeferredLightingMaterial = deferredLightingMaterial;
         }
 
-        private Material _deferredLightingMaterial;
-        private Texture _integratedBRDFTexture;
-
-        private void DeferredLightingPassInit()
+        class DeferredLightingPassData
         {
-            _deferredLightingMaterial = new Material(Shader.Find("Hidden/DeferredLighting"));
-            _integratedBRDFTexture = Resources.Load<Texture>("IntegratedBRDF");
+            internal TextureHandle color;
+            internal TextureHandle depth;
+            internal TextureHandle[] gbuffer;
+            internal BuildClusterLightGridResult buildClusterLightGridResult;
         }
 
-        private void DeferredLightingPassExecute(RenderGraph renderGraph, GBuffer gBuffer, ClusterLightsCullResult clusterLightsCullResult, out TextureHandle colorBuffer)
+        internal void Render(RenderGraph renderGraph, out TextureHandle color, TextureHandle depth, TextureHandle[] gbuffer, in BuildClusterLightGridResult buildClusterLightGridResult, ref RenderingData renderingData)
         {
-            using (var builder = renderGraph.AddRenderPass<DeferredLightingPassData>("DeferredLighting Pass", out var passData))
+            var colorDescriptor = renderingData.cameraTargetDescriptor;
+            colorDescriptor.useMipMap = false;
+            colorDescriptor.autoGenerateMips = false;
+            colorDescriptor.depthBufferBits = (int)DepthBits.None;
+
+            color = RenderingUtils.CreateRenderGraphTexture(renderGraph, colorDescriptor, "_DeferredLightingTexture", true);
+
+            using (var builder = renderGraph.AddRenderPass<DeferredLightingPassData>("Deferred Lighting Pass", out var passData))
             {
-                passData.GBufferData.DepthBuffer = builder.ReadTexture(gBuffer.DepthBuffer);
-                passData.GBufferData.GBuffer0 = builder.ReadTexture(gBuffer.GBuffer0);
-                passData.GBufferData.GBuffer1 = builder.ReadTexture(gBuffer.GBuffer1);
-                passData.GBufferData.GBuffer2 = builder.ReadTexture(gBuffer.GBuffer2);
-                passData.GBufferData.BakedGI = builder.ReadTexture(gBuffer.BakedGI);
-                passData.ClusterLightsCullResult.LightsCullTexture = builder.ReadTexture(clusterLightsCullResult.LightsCullTexture);
-                passData.ClusterLightsCullResult.LightIndexBuffer = builder.ReadComputeBuffer(clusterLightsCullResult.LightIndexBuffer);
-                colorBuffer = renderGraph.CreateTexture(new TextureDesc(Vector2.one)
+                passData.color = builder.WriteTexture(color);
+                passData.depth = builder.ReadTexture(depth);
+
+                passData.gbuffer = gbuffer;
+                for (int i = 0; i < gbuffer.Length; ++i)
                 {
-                    colorFormat = GraphicsFormat.B10G11R11_UFloatPack32, 
-                    clearBuffer = true, 
-                    clearColor = Color.black,
-                    name = "DeferredLighting"
-                });
-                passData.ColorBuffer = builder.WriteTexture(colorBuffer);
-                passData.DeferredLightingMaterial = _deferredLightingMaterial;
+                    passData.gbuffer[i] = builder.ReadTexture(gbuffer[i]);
+                }
+
+                passData.buildClusterLightGridResult.clusterPackingOffset = builder.ReadBuffer(buildClusterLightGridResult.clusterPackingOffset);
+                passData.buildClusterLightGridResult.clusterLights = builder.ReadBuffer(buildClusterLightGridResult.clusterLights);
 
                 builder.SetRenderFunc((DeferredLightingPassData data, RenderGraphContext context) =>
                 {
-                    var propertyBlock = context.renderGraphPool.GetTempMaterialPropertyBlock();
-                    propertyBlock.SetTexture(ShaderIDs._DepthBuffer, data.GBufferData.DepthBuffer);
-                    propertyBlock.SetTexture(ShaderIDs._GBuffer0, data.GBufferData.GBuffer0);
-                    propertyBlock.SetTexture(ShaderIDs._GBuffer1, data.GBufferData.GBuffer1);
-                    propertyBlock.SetTexture(ShaderIDs._GBuffer2, data.GBufferData.GBuffer2);
-                    propertyBlock.SetTexture(ShaderIDs._BakedGI, data.GBufferData.BakedGI);
-                    //Cluster
-                    propertyBlock.SetTexture(ShaderIDs._LightsCullTexture, data.ClusterLightsCullResult.LightsCullTexture);
-                    propertyBlock.SetBuffer(ShaderIDs._LightIndexBuffer, data.ClusterLightsCullResult.LightIndexBuffer);
-                    //IBL
-                    propertyBlock.SetTexture(ShaderIDs._IntegratedBRDFTexture, _integratedBRDFTexture);
-                    //propertyBlock.SetTexture(ShaderIDs._ProbesTexture, IBL.instance.ProbesTexture);
-                    //propertyBlock.SetInt(ShaderIDs._ProbesCount, IBL.instance.ProbesCount);
+                    m_DeferredLightingMaterial.SetTexture(ShaderPropertyId.depthBuffer, data.depth);
+                    m_DeferredLightingMaterial.SetTexture(ShaderPropertyId.gBuffer0, data.gbuffer[0]);
+                    m_DeferredLightingMaterial.SetTexture(ShaderPropertyId.gBuffer1, data.gbuffer[1]);
+                    m_DeferredLightingMaterial.SetTexture(ShaderPropertyId.gBuffer2, data.gbuffer[2]);
+                    m_DeferredLightingMaterial.SetTexture(ShaderPropertyId.bakedGI, data.gbuffer[3]);
+                    m_DeferredLightingMaterial.SetBuffer(ShaderPropertyId.clusterPackingOffset, data.buildClusterLightGridResult.clusterPackingOffset);
+                    m_DeferredLightingMaterial.SetBuffer(ShaderPropertyId.clusterLights, data.buildClusterLightGridResult.clusterLights);
 
-                    context.cmd.DrawProcedural(Matrix4x4.identity, data.DeferredLightingMaterial, 0, MeshTopology.Triangles, 3, 1, propertyBlock);
+                    context.cmd.DrawProcedural(Matrix4x4.identity, m_DeferredLightingMaterial, 0, MeshTopology.Triangles, 3, 1);
                 });
             }
-        }
-
-        private void DeferredLightingPassDispose()
-        {
-            Destroy(_deferredLightingMaterial);
-            //Destroy(_integratedBRDFTexture);
         }
     }
 }

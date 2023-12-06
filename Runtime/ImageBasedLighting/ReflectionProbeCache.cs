@@ -7,25 +7,21 @@ namespace HPipeline
 {
     class ReflectionProbeCache
     {
-        enum ProbeFilteringState
-        {
-            Convolving,
-            Ready
-        }
-
         int m_ProbeSize;
         int m_CacheSize;
 
         TextureCacheCubemap m_TextureCache;
         RenderTexture m_TempRenderTexture;
         RenderTexture m_ConvolutionTargetTexture;
-        ProbeFilteringState[] m_ProbeBakingState;
         Material m_ConvertTextureMaterial;
         Material m_CubeToPano;
         MaterialPropertyBlock m_ConvertTextureMPB;
         bool m_PerformBC6HCompression;
 
         GraphicsFormat m_ProbeFormat;
+
+        bool m_HasRelight;
+        Texture[] m_PrepareRelightTextures;
 
         public ReflectionProbeCache(int cacheSize, int probeSize, GraphicsFormat probeFormat, bool isMipmaped)
         {
@@ -44,7 +40,7 @@ namespace HPipeline
 
             m_PerformBC6HCompression = probeFormat == GraphicsFormat.RGB_BC6H_SFloat;
 
-            InitializeProbeBakingStates();
+            m_PrepareRelightTextures = new Texture[cacheSize];
         }
 
         void Initialize()
@@ -70,18 +66,6 @@ namespace HPipeline
                     m_ConvolutionTargetTexture.Create();
                 }
             }
-
-            InitializeProbeBakingStates();
-        }
-
-        void InitializeProbeBakingStates()
-        {
-            if (m_ProbeBakingState == null || m_ProbeBakingState.Length != m_CacheSize)
-            {
-                Array.Resize(ref m_ProbeBakingState, m_CacheSize);
-                for (var i = 0; i < m_CacheSize; ++i)
-                    m_ProbeBakingState[i] = ProbeFilteringState.Convolving;
-            }
         }
 
         public void Release()
@@ -95,8 +79,6 @@ namespace HPipeline
                 m_ConvolutionTargetTexture = null;
             }
 
-            m_ProbeBakingState = null;
-
             CoreUtils.Destroy(m_ConvertTextureMaterial);
             CoreUtils.Destroy(m_CubeToPano);
         }
@@ -105,6 +87,7 @@ namespace HPipeline
         {
             Initialize();
             m_TextureCache.NewFrame();
+            m_HasRelight = false;
         }
 
         // This method is used to convert inputs that are either compressed or not of the right size.
@@ -200,31 +183,27 @@ namespace HPipeline
             var sliceIndex = m_TextureCache.ReserveSlice(texture, out needUpdate);
             if (sliceIndex != -1)
             {
-                if (needUpdate || m_ProbeBakingState[sliceIndex] != ProbeFilteringState.Ready)
+                m_PrepareRelightTextures[sliceIndex] = texture;
+
+                if (needUpdate)
                 {
-                    //using (new ProfilingScope(cmd, ProfilingSampler.Get(HDProfileId.ConvolveReflectionProbe)))
+                    Texture result = ConvolveProbeTexture(cmd, texture);
+                    if (result == null)
+                        return -1;
+
+                    if (m_PerformBC6HCompression)
                     {
-                        // For now baking is done directly but will be time sliced in the future. Just preparing the code here.
-                        m_ProbeBakingState[sliceIndex] = ProbeFilteringState.Convolving;
-
-                        Texture result = ConvolveProbeTexture(cmd, texture);
-                        if (result == null)
-                            return -1;
-
-                        if (m_PerformBC6HCompression)
-                        {
-                            cmd.BC6HEncodeFastCubemap(
-                                result, m_ProbeSize, m_TextureCache.GetTexCache(),
-                                0, int.MaxValue, sliceIndex);
-                            m_TextureCache.SetSliceHash(sliceIndex, m_TextureCache.GetTextureHash(texture));
-                        }
-                        else
-                        {
-                            m_TextureCache.UpdateSlice(cmd, sliceIndex, result, m_TextureCache.GetTextureHash(texture)); // Be careful to provide the update count from the input texture, not the temporary one used for convolving.
-                        }
-
-                        m_ProbeBakingState[sliceIndex] = ProbeFilteringState.Ready;
+                        cmd.BC6HEncodeFastCubemap(
+                            result, m_ProbeSize, m_TextureCache.GetTexCache(),
+                            0, int.MaxValue, sliceIndex);
+                        m_TextureCache.SetSliceHash(sliceIndex, m_TextureCache.GetTextureHash(texture));
                     }
+                    else
+                    {
+                        m_TextureCache.UpdateSlice(cmd, sliceIndex, result, m_TextureCache.GetTextureHash(texture)); // Be careful to provide the update count from the input texture, not the temporary one used for convolving.
+                    }
+
+                    m_HasRelight |= needUpdate;
                 }
             }
 
@@ -236,14 +215,40 @@ namespace HPipeline
             return m_TextureCache.GetTexCache();
         }
 
-        internal static long GetApproxCacheSizeInByte(int nbElement, int resolution, int sliceSize)
+        public void Relight(CommandBuffer cmd, int probeCount)
         {
-            return TextureCacheCubemap.GetApproxCacheSizeInByte(nbElement, resolution, sliceSize);
-        }
+            if (!m_HasRelight && probeCount > 0)
+            {
+                m_TextureCache.UpdateSlice(probeCount, out int relightIndex);
 
-        internal static int GetMaxCacheSizeForWeightInByte(int weight, int resolution, int sliceSize)
-        {
-            return TextureCacheCubemap.GetMaxCacheSizeForWeightInByte(weight, resolution, sliceSize);
+                if (relightIndex != -1)
+                {
+                    Texture texture = m_PrepareRelightTextures[relightIndex];
+                    if (texture == null)
+                        return;
+                    Texture result = ConvolveProbeTexture(cmd, texture);
+                    if (result == null)
+                        return;
+
+                    if (m_PerformBC6HCompression)
+                    {
+                        cmd.BC6HEncodeFastCubemap(
+                            result, m_ProbeSize, m_TextureCache.GetTexCache(),
+                            0, int.MaxValue, relightIndex);
+                    }
+                    else
+                    {
+                        m_TextureCache.UpdateSlice(cmd, relightIndex, result, m_TextureCache.GetTextureHash(texture)); // Be careful to provide the update count from the input texture, not the temporary one used for convolving.
+                    }
+
+                    m_HasRelight = true;
+                }
+            }
+
+            for (int i = 0; i < m_PrepareRelightTextures.Length; i++)
+            {
+                m_PrepareRelightTextures[i] = null;
+            }
         }
     }
 }

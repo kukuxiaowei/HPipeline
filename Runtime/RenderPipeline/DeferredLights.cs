@@ -162,6 +162,8 @@ namespace HPipeline
 
                 m_LightBounds.Add(new LightBound(envlight, categoryOffset));
             }
+
+            m_ReflectionProbeCache.Relight(cmd, envLightCount);
         }
 
         void SetupShaderLightConstants(CommandBuffer cmd)

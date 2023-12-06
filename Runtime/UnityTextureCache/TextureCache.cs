@@ -1,9 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 using System.Collections.Generic;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace HPipeline
 {
@@ -163,12 +160,12 @@ namespace HPipeline
                 }
             }
 
-            if (sliceIndex != -1)
+            needUpdate |= !IsCreated();
+
+            if (needUpdate && sliceIndex != -1)
             {
                 m_SliceArray[sliceIndex].countLRU = 0;      // mark slice as in use this frame
             }
-
-            needUpdate |= !IsCreated();
 
             return sliceIndex;
         }
@@ -207,24 +204,6 @@ namespace HPipeline
 
         // Push the content to the internal target slice. Should be overridden by the child class. It will return fals if it fails to update (mainly sub-textures's size do not match)
         protected abstract bool TransferToSlice(CommandBuffer cmd, int sliceIndex, Texture[] textureArray);
-
-        public int FetchSlice(CommandBuffer cmd, Texture texture, bool forceReinject = false)
-        {
-            bool needUpdate = false;
-            var sliceIndex = ReserveSlice(texture, out needUpdate);
-
-            var bSwapSlice = forceReinject || needUpdate;
-
-            // wrap up
-            Debug.Assert(sliceIndex != -1, "The texture cache doesn't have enough space to store all textures. Please either increase the size of the texture cache, or use fewer unique textures.");
-            if (sliceIndex != -1 && bSwapSlice)
-            {
-                m_autoContentArray[0] = texture;
-                UpdateSlice(cmd, sliceIndex, m_autoContentArray, GetTextureHash(texture));
-            }
-
-            return sliceIndex;
-        }
 
         private static List<int> s_TempIntList = new List<int>();
         public void NewFrame()
@@ -315,22 +294,14 @@ namespace HPipeline
             return iNumMips;
         }
 
-        public static bool isMobileBuildTarget
+        public void UpdateSlice(int sliceCount, out int updateIndex)
         {
-            get
+            updateIndex = -1;
+            int length = m_SliceArray.Length;
+            if (sliceCount < length)
             {
-#if UNITY_EDITOR
-                switch (EditorUserBuildSettings.activeBuildTarget)
-                {
-                    case BuildTarget.iOS:
-                    case BuildTarget.Android:
-                        return true;
-                    default:
-                        return false;
-                }
-#else
-                return Application.isMobilePlatform;
-#endif
+                updateIndex = m_SortedIdxArray[length - sliceCount];
+                m_SliceArray[updateIndex].countLRU = 0;
             }
         }
 

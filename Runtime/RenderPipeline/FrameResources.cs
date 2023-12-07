@@ -155,6 +155,22 @@ namespace HPipeline
         {
             m_TextureHandles[GetKey(id)] = handle;
         }
+
+        public void SetFrameResourcesGBufferArray(TextureHandle[] gbuffer)
+        {
+            for (int i = 0; i < gbuffer.Length; ++i)
+                SetTexture((FrameResourceType.GBuffer0 + i), gbuffer[i]);
+        }
+
+        public TextureHandle[] GetFrameResourcesGBufferArray(int gbufferSliceCount)
+        {
+            TextureHandle[] gbuffer = new TextureHandle[gbufferSliceCount];
+
+            for (int i = 0; i < gbuffer.Length; ++i)
+                gbuffer[i] = GetTexture((FrameResourceType.GBuffer0 + i));
+
+            return gbuffer;
+        }
     }
 }
 

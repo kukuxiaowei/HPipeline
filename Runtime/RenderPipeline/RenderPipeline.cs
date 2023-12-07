@@ -238,10 +238,10 @@ namespace HPipeline
 
         static GraphicsFormat MakeRenderTextureGraphicsFormat()
         {
-            if (RenderingUtils.SupportsGraphicsFormat(GraphicsFormat.B10G11R11_UFloatPack32, FormatUsage.Linear | FormatUsage.Render))
-                return GraphicsFormat.B10G11R11_UFloatPack32;
-            if (RenderingUtils.SupportsGraphicsFormat(GraphicsFormat.R16G16B16A16_SFloat, FormatUsage.Linear | FormatUsage.Render))
-                return GraphicsFormat.R16G16B16A16_SFloat;
+            if (RenderingUtils.SupportsGraphicsFormat(GraphicsFormat.A2B10G10R10_UNormPack32, FormatUsage.Linear | FormatUsage.Render))
+                return GraphicsFormat.A2B10G10R10_UNormPack32;
+            if (RenderingUtils.SupportsGraphicsFormat(GraphicsFormat.R16G16B16A16_UNorm, FormatUsage.Linear | FormatUsage.Render))
+                return GraphicsFormat.R16G16B16A16_UNorm;
             return SystemInfo.GetGraphicsFormat(DefaultFormat.HDR); // This might actually be a LDR format on old devices.
         }
 
@@ -259,7 +259,10 @@ namespace HPipeline
 
             using (renderGraph.RecordAndExecute(rgParams))
             {
-                RecordRenderGraph(renderGraph, context, ref renderingData);
+                if (camera.cameraType == CameraType.Reflection)
+                    OnProbeBake(renderGraph, context, ref renderingData);
+                else
+                    RecordRenderGraph(renderGraph, context, ref renderingData);
             }
         }
 
@@ -307,6 +310,24 @@ namespace HPipeline
             OnAfterRendering(renderGraph, ref renderingData);
         }
 
+        void OnProbeBake(RenderGraph renderGraph, ScriptableRenderContext context, ref RenderingData renderingData)
+        {
+            Camera camera = renderingData.camera;
+            GBufferProbe probe = camera.GetComponent<AdditionalCameraData>()?.probe;
+            if (probe == null) return;
+
+            m_Resources.InitFrame();
+            probe.SetFrameResourcesGBufferArray(renderGraph, m_Resources);
+
+            RenderTargetIdentifier targetColorId = camera.targetTexture != null ? new RenderTargetIdentifier(camera.targetTexture) : BuiltinRenderTextureType.CameraTarget;
+            m_Resources.SetTexture(FrameResourceType.GBuffer3, renderGraph.ImportBackbuffer(targetColorId));
+            CreateDepthTexture(renderGraph, renderingData.cameraTargetDescriptor);
+
+            SetupRenderGraphCameraProperties(renderGraph, ref renderingData);
+
+            m_GBufferPass.Render(renderGraph, m_ActiveDepthTexture, ref renderingData, m_Resources);
+        }
+
         void CreateRenderGraphCameraRenderTargets(RenderGraph renderGraph, ref RenderingData renderingData)
         {
             Camera camera = renderingData.camera;
@@ -314,6 +335,8 @@ namespace HPipeline
             m_Resources.SetTexture(FrameResourceType.BackBufferColor, renderGraph.ImportBackbuffer(targetColorId));
 
             CreateDepthTexture(renderGraph, renderingData.cameraTargetDescriptor);
+
+            m_GBufferPass.CreateGBufferTexture(renderGraph, ref renderingData, m_Resources);
         }
 
         void CreateDepthTexture(RenderGraph renderGraph, RenderTextureDescriptor descriptor)
@@ -407,8 +430,7 @@ namespace HPipeline
 
             m_GBufferPass.Render(renderGraph, m_ActiveDepthTexture, ref renderingData, m_Resources);
 
-            TextureHandle[] gbuffer = m_GBufferPass.GetFrameResourcesGBufferArray(m_Resources);
-            m_DeferredLightingPass.Render(renderGraph, out m_ActiveColorTexture, m_ActiveDepthTexture, gbuffer, clusterLightsCullResult, ref renderingData);
+            m_DeferredLightingPass.Render(renderGraph, out m_ActiveColorTexture, m_ActiveDepthTexture, clusterLightsCullResult, ref renderingData, m_Resources);
 
             if (renderingData.camera.clearFlags == CameraClearFlags.Skybox && RenderSettings.skybox != null)
             {

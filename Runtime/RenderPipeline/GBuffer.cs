@@ -43,54 +43,38 @@ namespace HPipeline
             passData.rendererListHdl = renderGraph.CreateRendererList(param);
         }
 
-        internal TextureHandle[] GetFrameResourcesGBufferArray(FrameResources frameResources)
+        internal void CreateGBufferTexture(RenderGraph renderGraph, ref RenderingData renderingData, FrameResources frameResources)
         {
-            TextureHandle[] gbuffer = GbufferTextureHandles;
+            GbufferTextureHandles = new TextureHandle[4];
 
-            for (int i = 0; i < gbuffer.Length; ++i)
-            {
-                gbuffer[i] = frameResources.GetTexture((FrameResourceType.GBuffer0 + i));
-            }
+            var normalDescriptor = renderingData.cameraTargetDescriptor;
+            normalDescriptor.graphicsFormat = GraphicsFormat.A2B10G10R10_UNormPack32;
+            GbufferTextureHandles[0] = RenderingUtils.CreateRenderGraphTexture(renderGraph, normalDescriptor, "_GBuffer0", true);
 
-            return gbuffer;
-        }
+            var albedoDescriptor = renderingData.cameraTargetDescriptor;
+            albedoDescriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_SRGB;
+            GbufferTextureHandles[1] = RenderingUtils.CreateRenderGraphTexture(renderGraph, albedoDescriptor, "_GBuffer1", true);
 
-        internal void SetFrameResourcesGBufferArray(FrameResources frameResources)
-        {
-            TextureHandle[] gbuffer = GbufferTextureHandles;
+            var specularDescriptor = renderingData.cameraTargetDescriptor;
+            specularDescriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_UNorm;
+            GbufferTextureHandles[2] = RenderingUtils.CreateRenderGraphTexture(renderGraph, albedoDescriptor, "_GBuffer2", true);
 
-            for (int i = 0; i < gbuffer.Length; ++i)
-                frameResources.SetTexture((FrameResourceType.GBuffer0 + i), gbuffer[i]);
+            GbufferTextureHandles[3] = RenderingUtils.CreateRenderGraphTexture(renderGraph, renderingData.cameraTargetDescriptor, "_GBuffer3", true);
+
+            frameResources.SetFrameResourcesGBufferArray(GbufferTextureHandles);
         }
 
         internal void Render(RenderGraph renderGraph, TextureHandle depthBuffer, ref RenderingData renderingData, FrameResources frameResources)
         {
-            int gbufferSliceCount = 4;
-
             using (var builder = renderGraph.AddRasterRenderPass<GBufferPassData>("GBuffer Pass", out var passData))
             {
-                passData.gbuffer = GbufferTextureHandles = new TextureHandle[gbufferSliceCount];
+                passData.gbuffer = GbufferTextureHandles = frameResources.GetFrameResourcesGBufferArray(4);
 
-                var normalDescriptor = renderingData.cameraTargetDescriptor;
-                normalDescriptor.graphicsFormat = GraphicsFormat.A2B10G10R10_UNormPack32;
-                GbufferTextureHandles[0] = RenderingUtils.CreateRenderGraphTexture(renderGraph, normalDescriptor, "_GBuffer0", true);
-
-                var albedoDescriptor = renderingData.cameraTargetDescriptor;
-                albedoDescriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_SRGB;
-                GbufferTextureHandles[1] = RenderingUtils.CreateRenderGraphTexture(renderGraph, albedoDescriptor, "_GBuffer1", true);
-
-                var specularDescriptor = renderingData.cameraTargetDescriptor;
-                specularDescriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_UNorm;
-                GbufferTextureHandles[2] = RenderingUtils.CreateRenderGraphTexture(renderGraph, albedoDescriptor, "_GBuffer2", true);
-
-                GbufferTextureHandles[3] = RenderingUtils.CreateRenderGraphTexture(renderGraph, renderingData.cameraTargetDescriptor, "_GBuffer3", true);
-
-                for(int i = 0; i < gbufferSliceCount; i++)
+                for(int i = 0; i < 4; i++)
                 {
                     passData.gbuffer[i] = builder.UseTextureFragment(GbufferTextureHandles[i], i, IBaseRenderGraphBuilder.AccessFlags.Write);
                 }
 
-                SetFrameResourcesGBufferArray(frameResources);
                 passData.depth = builder.UseTextureFragmentDepth(depthBuffer, IBaseRenderGraphBuilder.AccessFlags.Write);
 
                 InitRendererLists(ref renderingData, ref passData, renderGraph);

@@ -22,8 +22,10 @@ namespace HPipeline
             internal BuildClusterLightGridResult buildClusterLightGridResult;
         }
 
-        internal void Render(RenderGraph renderGraph, out TextureHandle color, TextureHandle depth, TextureHandle[] gbuffer, in BuildClusterLightGridResult buildClusterLightGridResult, ref RenderingData renderingData)
+        internal void Render(RenderGraph renderGraph, out TextureHandle color, TextureHandle depth, in BuildClusterLightGridResult buildClusterLightGridResult, ref RenderingData renderingData, FrameResources frameResources)
         {
+            var gbuffer = frameResources.GetFrameResourcesGBufferArray(4);
+
             var colorDescriptor = renderingData.cameraTargetDescriptor;
             colorDescriptor.useMipMap = false;
             colorDescriptor.autoGenerateMips = false;

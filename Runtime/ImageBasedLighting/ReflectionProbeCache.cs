@@ -29,7 +29,7 @@ namespace HPipeline
             m_ConvertTextureMPB = new MaterialPropertyBlock();
             m_CubeToPano = CoreUtils.CreateEngineMaterial("Hidden/CubeToPano");
 
-            Debug.Assert(probeFormat == GraphicsFormat.RGB_BC6H_SFloat || probeFormat == GraphicsFormat.B10G11R11_UFloatPack32 || probeFormat == GraphicsFormat.R16G16B16A16_SFloat,
+            Debug.Assert(probeFormat == GraphicsFormat.RGB_BC6H_UFloat || probeFormat == GraphicsFormat.B10G11R11_UFloatPack32 || probeFormat == GraphicsFormat.R16G16B16A16_SFloat,
                 "Reflection Probe Cache format for HDRP can only be BC6H, FP16 or R11G11B10.");
             m_ProbeFormat = probeFormat;
 
@@ -38,7 +38,7 @@ namespace HPipeline
             m_TextureCache = new TextureCacheCubemap("ReflectionProbe");
             m_TextureCache.AllocTextureArray(cacheSize, probeSize, probeFormat, isMipmaped, m_CubeToPano);
 
-            m_PerformBC6HCompression = probeFormat == GraphicsFormat.RGB_BC6H_SFloat;
+            m_PerformBC6HCompression = probeFormat == GraphicsFormat.RGB_BC6H_UFloat;
 
             m_PrepareRelightTextures = new Texture[cacheSize];
         }
